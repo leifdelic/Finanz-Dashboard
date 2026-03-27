@@ -38,20 +38,22 @@
       .dash-grid-3 { grid-template-columns: 1fr !important; }
       .dash-grid-4 { grid-template-columns: 1fr 1fr !important; }
       .dash-grid-2 { grid-template-columns: 1fr !important; }
-      .dash-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100% !important; }
-      .dash-tabs button { padding: 7px 14px !important; font-size: 11px !important; white-space: nowrap; }
+      .dash-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100% !important; scrollbar-width: none; }
+      .dash-tabs::-webkit-scrollbar { display: none; }
+      .dash-tabs button { padding: 7px 14px !important; font-size: 11px !important; white-space: nowrap; flex-shrink: 0; }
       .dash-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
       .dash-header-btns { width: 100%; justify-content: flex-start !important; }
-      .dash-nw-cols { flex-wrap: wrap !important; }
-      .dash-nw-cols > div { flex: 0 0 33% !important; min-width: 0 !important; margin-bottom: 8px; }
+      .dash-nw-cols { flex-wrap: wrap !important; gap: 0 !important; }
+      .dash-nw-cols > div { flex: 0 0 33.33% !important; min-width: 0 !important; margin-bottom: 10px; }
       .dash-section { padding: 16px 14px !important; }
       .dash-login { width: calc(100% - 32px) !important; max-width: 360px; padding: 32px 24px !important; }
       .dash-main { padding: 16px 10px !important; }
-      .dash-flow svg { min-height: 220px !important; }
+      .dash-flow { min-height: 220px !important; }
+      .dash-nw-title { font-size: 28px !important; }
     }
     @media (max-width: 480px) {
-      .dash-nw-cols > div { flex: 0 0 50% !important; }
-      .dash-grid-2 { grid-template-columns: 1fr !important; }
+      .dash-nw-cols > div { flex: 0 0 33.33% !important; }
+      .dash-nw-title { font-size: 24px !important; }
     }
   </style>
 </head>
@@ -69,6 +71,8 @@ const C = {
 
 const fmt = n => n.toLocaleString("de-CH",{minimumFractionDigits:0,maximumFractionDigits:0});
 const fmt2 = n => n.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtCompact = v => { const a=Math.abs(v); if(a>=1000000)return(v/1000000).toFixed(a%1000000===0?0:1)+"M"; if(a>=1000)return Math.round(v/1000)+"k"; return v.toString(); };
+const isMobile = () => window.innerWidth < 768;
 const pct = (v,t) => t>0 ? Math.min(100,Math.round(v/t*100)) : 0;
 const mos = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
 const mKey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
@@ -358,8 +362,8 @@ function DualLineChart({ title, istData, sollData, unit, height, clipAhead, fill
             padding:12, cornerRadius:10, callbacks:{ label:ctx=>ctx.dataset.label+": "+(unit||"CHF ")+fmt(ctx.parsed.y) }}
         },
         scales:{
-          x:{ ticks:{color:C.sub,font:{size:10,family:"Inter"},maxRotation:45}, grid:{display:false}, border:{display:false} },
-          y:{ ticks:{color:C.sub,font:{size:10,family:"JetBrains Mono"},callback:v=>(unit||"CHF ")+fmt(v),maxTicksLimit:6},
+          x:{ ticks:{color:C.sub,font:{size:isMobile()?8:10,family:"Inter"},maxRotation:45,maxTicksLimit:isMobile()?6:12}, grid:{display:false}, border:{display:false} },
+          y:{ ticks:{color:C.sub,font:{size:isMobile()?9:10,family:"JetBrains Mono"},callback:v=>isMobile()?fmtCompact(v):(unit||"CHF ")+fmt(v),maxTicksLimit:5},
             grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false} }
         }
       }
@@ -439,14 +443,10 @@ function PortfolioChart({ istData, sollData }) {
             callbacks:{ label:ctx=>ctx.dataset.label+": CHF "+fmt(ctx.parsed.y) }}
         },
         scales:{
-          x:{ ticks:{color:C.sub,font:{size:10,family:"Inter"},maxRotation:45}, grid:{display:false}, border:{display:false} },
+          x:{ ticks:{color:C.sub,font:{size:isMobile()?8:10,family:"Inter"},maxRotation:45,maxTicksLimit:isMobile()?6:12}, grid:{display:false}, border:{display:false} },
           y:{ max:zoomCfg.max||undefined,
-            ticks:{color:C.sub,font:{size:10,family:"JetBrains Mono"},callback:v=>"CHF "+fmt(v),maxTicksLimit:6},
-            grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false},
-            afterFit: function(axis) {
-              // add milestone labels
-            }
-          }
+            ticks:{color:C.sub,font:{size:isMobile()?9:10,family:"JetBrains Mono"},callback:v=>isMobile()?fmtCompact(v):"CHF "+fmt(v),maxTicksLimit:5},
+            grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false} }
         }
       }
     });
@@ -454,14 +454,14 @@ function PortfolioChart({ istData, sollData }) {
   }, [istData, clippedSoll, zoom]);
 
   const zBtn = (id) => <button key={id} onClick={()=>setZoom(id)} style={{
-    padding:"4px 12px", borderRadius:6, fontSize:11, fontWeight:500, border:"none",
+    padding:"4px 10px", borderRadius:6, fontSize:10, fontWeight:500, border:"none",
     background:zoom===id?"#1c1c1e":"#f2f2f7", color:zoom===id?"#fff":"#8e8e93",
   }}>{ZOOMS[id].label}</button>;
 
   return <Section>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <span style={{fontSize:13,fontWeight:500,color:C.muted}}>Vermögen</span>
-      <div style={{display:"flex",gap:4}}>
+      <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
         {Object.keys(ZOOMS).map(id=>zBtn(id))}
       </div>
     </div>
@@ -525,9 +525,9 @@ function BusinessChart({ istData, sollData }) {
             callbacks:{ label:ctx=>ctx.dataset.label+": CHF "+fmt(ctx.parsed.y)+"/Mo" }}
         },
         scales:{
-          x:{ ticks:{color:C.sub,font:{size:10,family:"Inter"},maxRotation:45}, grid:{display:false}, border:{display:false} },
+          x:{ ticks:{color:C.sub,font:{size:isMobile()?8:10,family:"Inter"},maxRotation:45,maxTicksLimit:isMobile()?6:12}, grid:{display:false}, border:{display:false} },
           y:{ max:zoomCfg.max||undefined,
-            ticks:{color:C.sub,font:{size:10,family:"JetBrains Mono"},callback:v=>"CHF "+fmt(v),maxTicksLimit:6},
+            ticks:{color:C.sub,font:{size:isMobile()?9:10,family:"JetBrains Mono"},callback:v=>isMobile()?fmtCompact(v):"CHF "+fmt(v),maxTicksLimit:5},
             grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false} }
         }
       }
@@ -536,14 +536,14 @@ function BusinessChart({ istData, sollData }) {
   }, [istData, clippedSoll, zoom]);
 
   const zBtn = (id) => <button key={id} onClick={()=>setZoom(id)} style={{
-    padding:"4px 12px", borderRadius:6, fontSize:11, fontWeight:500, border:"none",
+    padding:"4px 10px", borderRadius:6, fontSize:10, fontWeight:500, border:"none",
     background:zoom===id?"#1c1c1e":"#f2f2f7", color:zoom===id?"#fff":"#8e8e93",
   }}>{ZOOMS[id].label}</button>;
 
   return <Section>
-    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
       <span style={{fontSize:13,fontWeight:500,color:C.muted}}>Business-Profit netto (monatlich)</span>
-      <div style={{display:"flex",gap:4}}>
+      <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
         {zBtn("1k")}{zBtn("5k")}{zBtn("10k")}{zBtn("all")}
       </div>
     </div>
@@ -1143,7 +1143,7 @@ const entries=data.entries||[];
       {/* Net Worth */}
       <Section style={{marginBottom:18}}>
         <div style={{fontSize:10,color:C.sub,fontWeight:500,letterSpacing:0.8,textTransform:"uppercase",marginBottom:8}}>Nettovermögen</div>
-        <div style={{fontSize:36,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white,letterSpacing:"-0.04em",lineHeight:1}}>
+        <div className="dash-nw-title" style={{fontSize:36,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white,letterSpacing:"-0.04em",lineHeight:1}}>
           CHF {fmt(Math.round(netWorth))}</div>
         <div className="dash-nw-cols" style={{display:"flex",gap:0,marginTop:20,borderTop:"1px solid "+C.border,paddingTop:18}}>
           {[{l:"Cash",v:cashTotal},{l:"Bitcoin",v:Math.round(pv.btc)},{l:"Aktien",v:Math.round(pv.stocks)},{l:"Gold",v:Math.round(pv.gold)},{l:"Schulden",v:-Math.round(schuldenCHF)}].map((m,i)=>
