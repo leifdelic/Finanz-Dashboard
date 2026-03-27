@@ -212,7 +212,7 @@ const CG_IDS = {
 };
 const defaultData = () => ({
   entries: [
-    { month:"2026-03", sparkonto:0, bargeld:0, schulden_total:0, schulden_bezahlt:0, btc:0, aktien:0, gold:0, biz_rev:0, biz_cost:0, erlebniskasse:0, anschaffungskasse:0, patrik_sparen:0 },
+    { month:"2026-03", sparkonto:0, bargeld:0, schulden_total:0, schulden_bezahlt:0, btc:0, aktien:0, gold:0, biz_rev:0, biz_cost:0, erlebniskasse:0, anschaffungskasse:0, patrik_sparen:0, julia_sparen:0 },
   ],
   holdings: { btc:0, gold_oz:0, aapl:0, amzn:0, googl:0, pltr:0 },
   anschaffungen: [{ id:1, name:"Neue Couch", ziel:3000, gespart:0 }],
@@ -224,6 +224,13 @@ const defaultData = () => ({
       { id:2, label:"Business-Kosten", items:[["Hosting/Tools",80],["Domain",5],["Marketing",50],["Weiterbildung",30]] },
     ],
     ziele: [{ id:1, name:"MacBook Pro (Business)", ziel:3500, gespart:0 }, { id:2, name:"Notgroschen Patrik", ziel:5000, gespart:0 }],
+  },
+  julia: {
+    spassgeld: 400,
+    groups: [
+      { id:1, label:"Persönlich", items:[["Position",0]] },
+    ],
+    ziele: [],
   },
   geldfluss: {
     income: 9396,
@@ -753,9 +760,9 @@ function GeldflussFlow({ gf, bizProfit, onAddCustom, onUpdateItems, onRemoveCust
 }
 
 /* ── Patrik Personal Geldfluss ── */
-function PatrikFlow({ patrik, spassgeld, onRemoveGroup, onUpdateGroupItems }) {
-  const spass = spassgeld || patrik.spassgeld || 400;
-  const groups = patrik.groups || [];
+function PersonFlow({ person, spassgeld, onRemoveGroup, onUpdateGroupItems, personName, personSub }) {
+  const spass = spassgeld || person.spassgeld || 400;
+  const groups = person.groups || [];
   const groupsTotal = groups.reduce((s,g)=>s+(g.items||[]).reduce((a,i)=>a+i[1],0),0);
   const rest = Math.max(0, spass - groupsTotal);
 
@@ -766,8 +773,8 @@ function PatrikFlow({ patrik, spassgeld, onRemoveGroup, onUpdateGroupItems }) {
     const nodes=[], edges=[];
 
     nodes.push({id:"haushalt",x:W/2-100,y:y0,w:200,h:nh,label:"Spassgeld",sub:"CHF "+fmt(spass)+"/Mo"});
-    nodes.push({id:"patrik_hub",x:W/2-100,y:y1,w:200,h:nh,label:"Patrik",sub:"Persönliches Budget"});
-    edges.push({from:"haushalt",to:"patrik_hub",amt:spass});
+    nodes.push({id:"person_hub",x:W/2-100,y:y1,w:200,h:nh,label:personName||"Person",sub:personSub||"Persönliches Budget"});
+    edges.push({from:"haushalt",to:"person_hub",amt:spass});
 
     const items = [];
     groups.forEach(g=>{const gs=(g.items||[]).reduce((s,i)=>s+i[1],0);
@@ -779,8 +786,8 @@ function PatrikFlow({ patrik, spassgeld, onRemoveGroup, onUpdateGroupItems }) {
       nodes.push({...item,x:30+i*gap+(gap-nw)/2,y:y2,w:nw,h:nh});
     });
     groups.forEach(g=>{const gs=(g.items||[]).reduce((s,i)=>s+i[1],0);
-      edges.push({from:"patrik_hub",to:"grp_"+g.id,amt:gs});});
-    edges.push({from:"patrik_hub",to:"sparziele",amt:0});
+      edges.push({from:"person_hub",to:"grp_"+g.id,amt:gs});});
+    edges.push({from:"person_hub",to:"sparziele",amt:0});
 
     return {nodes,edges,svgH:y2+nh+40};
   },[spass,groups,rest,groupsTotal]);
@@ -963,10 +970,10 @@ const entries=data.entries||[];
     const nd=new Date(y,m);
     console.log("addEntry: adding month", mKey(nd));
     persist(prev=>({...prev,entries:[...prev.entries,{month:mKey(nd),sparkonto:last?.sparkonto||0,bargeld:last?.bargeld||0,
-      schulden_total:last?.schulden_total||last?.schulden||0,schulden_bezahlt:last?.schulden_bezahlt||0,btc:pv.btc||0,aktien:pv.stocks||0,gold:pv.gold||0,biz_rev:0,biz_cost:0,erlebniskasse:last?.erlebniskasse||0,anschaffungskasse:last?.anschaffungskasse||0,patrik_sparen:last?.patrik_sparen||0}]}));
+      schulden_total:last?.schulden_total||last?.schulden||0,schulden_bezahlt:last?.schulden_bezahlt||0,btc:pv.btc||0,aktien:pv.stocks||0,gold:pv.gold||0,biz_rev:0,biz_cost:0,erlebniskasse:last?.erlebniskasse||0,anschaffungskasse:last?.anschaffungskasse||0,patrik_sparen:last?.patrik_sparen||0,julia_sparen:last?.julia_sparen||0}]}));
   };
   const updateEntry=(idx,f,v)=>{persist(prev=>{const n=[...prev.entries];n[idx]={...n[idx],[f]:+v};return{...prev,entries:n};});};
-  const removeEntry=idx=>{persist(prev=>{const ne=prev.entries.filter((_,i)=>i!==idx);if(ne.length===0){const nd=new Date();return{...prev,entries:[{month:mKey(nd),sparkonto:0,bargeld:0,schulden_total:0,schulden_bezahlt:0,btc:0,aktien:0,gold:0,biz_rev:0,biz_cost:0,erlebniskasse:0,anschaffungskasse:0,patrik_sparen:0}]};}return{...prev,entries:ne};});};
+  const removeEntry=idx=>{persist(prev=>{const ne=prev.entries.filter((_,i)=>i!==idx);if(ne.length===0){const nd=new Date();return{...prev,entries:[{month:mKey(nd),sparkonto:0,bargeld:0,schulden_total:0,schulden_bezahlt:0,btc:0,aktien:0,gold:0,biz_rev:0,biz_cost:0,erlebniskasse:0,anschaffungskasse:0,patrik_sparen:0,julia_sparen:0}]};}return{...prev,entries:ne};});};
 
   const gf=data.geldfluss||defaultData().geldfluss;
   const gfLabels=gf.labels||{};
@@ -1015,6 +1022,23 @@ const entries=data.entries||[];
   const updatePatrikGroup=(id,items)=>updatePatrik("groups",patrik.groups.map(g=>g.id===id?{...g,items}:g));
   const renamePatrikGroup=(id,label)=>updatePatrik("groups",patrik.groups.map(g=>g.id===id?{...g,label}:g));
   const removePatrikGroup=id=>updatePatrik("groups",patrik.groups.filter(g=>g.id!==id));
+
+  const _defJulia=defaultData().julia;
+  const julia=useMemo(()=>{
+    const j=data.julia||{};
+    let groups=j.groups;
+    if(!groups){ groups=_defJulia.groups; }
+    return {spassgeld:j.spassgeld??_defJulia.spassgeld, groups:groups||_defJulia.groups, ziele:j.ziele||_defJulia.ziele};
+  },[data.julia]);
+  const updateJulia=(k,v)=>persist(prev=>{const j={..._defJulia,...(prev.julia||{})}; return{...prev,julia:{...j,[k]:v}};});
+  const addJuliaZiel=()=>persist(prev=>{const j={..._defJulia,...(prev.julia||{})}; return{...prev,julia:{...j,ziele:[...(j.ziele||[]),{id:Date.now(),name:"Neues Ziel",ziel:1000,gespart:0}]}};});
+  const updateJuliaZiel=(id,f,v)=>persist(prev=>{const j={..._defJulia,...(prev.julia||{})}; return{...prev,julia:{...j,ziele:(j.ziele||[]).map(z=>z.id===id?{...z,[f]:f==="name"?v:+v}:z)}};});
+  const removeJuliaZiel=id=>persist(prev=>{const j={..._defJulia,...(prev.julia||{})}; return{...prev,julia:{...j,ziele:(j.ziele||[]).filter(z=>z.id!==id)}};});
+  const addJuliaGroup=()=>updateJulia("groups",[...julia.groups,{id:Date.now(),label:"Neues Konto",items:[["Position",0]]}]);
+  const updateJuliaGroup=(id,items)=>updateJulia("groups",julia.groups.map(g=>g.id===id?{...g,items}:g));
+  const renameJuliaGroup=(id,label)=>updateJulia("groups",julia.groups.map(g=>g.id===id?{...g,label}:g));
+  const removeJuliaGroup=id=>updateJulia("groups",julia.groups.filter(g=>g.id!==id));
+
   const bizProfit=(latest.biz_rev||0)-(latest.biz_cost||0);
 
   const tabBtn=(id,label)=><button key={id} onClick={()=>setTab(id)} style={{
@@ -1087,6 +1111,7 @@ const entries=data.entries||[];
         {tabBtn("entries","Monatsdaten")}
         {tabBtn("geldfluss","G. Geldfluss")}
         {tabBtn("patrik","P. Geldfluss")}
+        {tabBtn("julia","J. Geldfluss")}
       </div>
 
       {/* ═══ DASHBOARD ═══ */}
@@ -1176,6 +1201,7 @@ const entries=data.entries||[];
             <NumInput label="Erlebniskasse CHF" value={entry.erlebniskasse||0} onChange={v=>updateEntry(idx,"erlebniskasse",v)}/>
             <NumInput label="Anschaffungskasse CHF" value={entry.anschaffungskasse||0} onChange={v=>updateEntry(idx,"anschaffungskasse",v)}/>
             <NumInput label="P. Sparvermögen CHF" value={entry.patrik_sparen||0} onChange={v=>updateEntry(idx,"patrik_sparen",v)}/>
+            <NumInput label="J. Sparvermögen CHF" value={entry.julia_sparen||0} onChange={v=>updateEntry(idx,"julia_sparen",v)}/>
           </div></div>;})}
       </Section>}
 
@@ -1308,7 +1334,7 @@ const entries=data.entries||[];
 
       {/* ═══ PATRIK ═══ */}
       {tab==="patrik"&&<div>
-        <PatrikFlow patrik={patrik} spassgeld={gf.privat} onRemoveGroup={removePatrikGroup} onUpdateGroupItems={updatePatrikGroup}/>
+        <PersonFlow person={patrik} spassgeld={gf.privat} onRemoveGroup={removePatrikGroup} onUpdateGroupItems={updatePatrikGroup} personName="Patrik" personSub="Persönliches Budget"/>
 
         <div style={{marginTop:20}}>
           {patrik.groups.map(g=><EditableList key={g.id} label={g.label} items={g.items||[]}
@@ -1373,6 +1399,77 @@ const entries=data.entries||[];
 
           <div style={{display:"flex",justifyContent:"center",marginTop:8,marginBottom:14}}>
             <button onClick={addPatrikGroup} style={{padding:"10px 24px",fontSize:12,fontWeight:500,color:C.sub,background:"none",border:"1.5px dashed #d1d1d6",borderRadius:10,letterSpacing:0.3}}>+ Neues Konto erstellen</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* ═══ JULIA GELDFLUSS ═══ */}
+      {tab==="julia"&&<div>
+        <PersonFlow person={julia} spassgeld={gf.privat} onRemoveGroup={removeJuliaGroup} onUpdateGroupItems={updateJuliaGroup} personName="Julia" personSub="Persönliches Budget"/>
+
+        <div style={{marginTop:20}}>
+          {julia.groups.map(g=><EditableList key={g.id} label={g.label} items={g.items||[]}
+            onChange={v=>updateJuliaGroup(g.id,v)} onDelete={()=>removeJuliaGroup(g.id)} onRename={v=>renameJuliaGroup(g.id,v)}/>)}
+
+          <Section>
+            <SectionTitle>Zusammenfassung</SectionTitle>
+            {(()=>{
+              const groupRows=julia.groups.map(g=>({l:g.label,v:-gfSum(g.items)}));
+              const totalOut=julia.groups.reduce((s,g)=>s+gfSum(g.items),0);
+              const spass=gf.privat||julia.spassgeld||400;
+              const rest=spass-totalOut;
+              const rows=[{l:"Spassgeld",v:spass,pos:true},...groupRows];
+              return React.createElement(React.Fragment, null,
+                rows.map((row,i)=>React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border}},
+                  React.createElement("span",{style:{fontSize:13,color:C.sub}},row.l),
+                  React.createElement("span",{style:{fontSize:13,fontFamily:"'JetBrains Mono',monospace",fontWeight:500,
+                    color:row.pos?C.positive:C.text}},
+                    (row.v<0?"–":"")+"CHF "+fmt(Math.abs(Math.round(row.v)))))),
+                React.createElement("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:14,marginTop:6}},
+                  React.createElement("span",{style:{fontSize:14,fontWeight:600,color:C.white}},"Verfügbar"),
+                  React.createElement("span",{style:{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:rest>0?C.white:C.negative}},
+                    "CHF "+fmt(Math.round(rest)))));
+            })()}
+          </Section>
+
+          {(()=>{
+            const jsTotal=(()=>{for(let i=entries.length-1;i>=0;i--){if(entries[i].julia_sparen)return entries[i].julia_sparen;}return 0;})();
+            const jsVerteilt=(julia.ziele||[]).reduce((s,z)=>s+z.gespart,0);
+            const jsVerfuegbar=Math.max(0,jsTotal-jsVerteilt);
+            return <Section>
+            <SectionTitle right={<button onClick={addJuliaZiel} style={{background:"#f2f2f7",border:"none",borderRadius:8,
+              color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Sparziel</button>}>Sparziele</SectionTitle>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+              <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
+                <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(jsTotal)}</div>
+              </div>
+              <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verteilt</div>
+                <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(jsVerteilt)}</div>
+              </div>
+              <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verfügbar</div>
+                <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:jsVerfuegbar>0?C.positive:C.dim}}>CHF {fmt(jsVerfuegbar)}</div>
+              </div>
+            </div>
+            {(julia.ziele||[]).map(z=><div key={z.id} style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <input type="text" value={z.name} onChange={e=>updateJuliaZiel(z.id,"name",e.target.value)}
+                  style={{background:"transparent",border:"none",color:C.white,fontSize:13,fontWeight:600,padding:0,width:"auto",fontFamily:"Inter"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",color:C.sub}}>CHF {fmt(z.gespart)} / {fmt(z.ziel)}</span>
+                  <span onClick={()=>removeJuliaZiel(z.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
+                </div></div>
+              <Progress label="" value={z.gespart} target={z.ziel}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+                <NumInput label="Gespart (CHF)" value={z.gespart} onChange={v=>updateJuliaZiel(z.id,"gespart",v)}/>
+                <NumInput label="Ziel (CHF)" value={z.ziel} onChange={v=>updateJuliaZiel(z.id,"ziel",v)}/></div></div>)}
+            {(julia.ziele||[]).length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
+          </Section>;})()}
+
+          <div style={{display:"flex",justifyContent:"center",marginTop:8,marginBottom:14}}>
+            <button onClick={addJuliaGroup} style={{padding:"10px 24px",fontSize:12,fontWeight:500,color:C.sub,background:"none",border:"1.5px dashed #d1d1d6",borderRadius:10,letterSpacing:0.3}}>+ Neues Konto erstellen</button>
           </div>
         </div>
       </div>}
