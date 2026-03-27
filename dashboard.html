@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Finanz-Dashboard</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f8f8f8; font-family: 'Inter', system-ui, -apple-system, sans-serif; color: #3c3c43; -webkit-font-smoothing: antialiased; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 2px; }
+    input[type=number], input[type=text] {
+      background: #f2f2f7; border: 1px solid #e5e5ea; border-radius: 8px;
+      color: #1c1c1e; padding: 8px 12px; font-size: 13px;
+      font-family: 'JetBrains Mono', monospace; outline: none; width: 100%; transition: border-color 0.15s;
+    }
+    input:focus { border-color: #c7c7cc; }
+    input::placeholder { color: #aeaeb2; }
+    button { cursor: pointer; font-family: 'Inter', system-ui, sans-serif; transition: all 0.15s; }
+    ::selection { background: #e5e5ea; }
+    input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    @keyframes draw { from { stroke-dashoffset: 1000 } to { stroke-dashoffset: 0 } }
+    @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+    @keyframes dashFlow { from { stroke-dashoffset: 14 } to { stroke-dashoffset: 0 } }
+    @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+const C = {
+  bg:"#f8f8f8", card:"#ffffff", border:"#ebebeb",
+  text:"#3c3c43", sub:"#8e8e93", dim:"#c7c7cc", white:"#1c1c1e", muted:"#636366",
+  positive:"#34c759", negative:"#ff3b30",
+  flow:"#636366", flowLight:"#aeaeb2", nodeBg:"#ffffff", nodeBorder:"#d1d1d6",
+};
+
+const fmt = n => n.toLocaleString("de-CH",{minimumFractionDigits:0,maximumFractionDigits:0});
+const fmt2 = n => n.toLocaleString("de-CH",{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct = (v,t) => t>0 ? Math.min(100,Math.round(v/t*100)) : 0;
+const mos = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+const mKey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+const mLabel = k => { const [y,m]=k.split("-"); return mos[+m-1]+" '"+y.slice(2); };
+/* ── Crypto helpers (AES-GCM + PBKDF2) ── */
+const _enc = new TextEncoder(), _dec = new TextDecoder();
+async function deriveKey(password, salt) {
+  const base = await crypto.subtle.importKey("raw", _enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name:"PBKDF2", salt, iterations:100000, hash:"SHA-256" }, base, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+}
+async function encrypt(data, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt);
+  const ct = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, key, _enc.encode(JSON.stringify(data)));
+  const buf = new Uint8Array(salt.length + iv.length + ct.byteLength);
+  buf.set(salt, 0); buf.set(iv, 16); buf.set(new Uint8Array(ct), 28);
+  return btoa(String.fromCharCode(...buf));
+}
+async function decrypt(b64, password) {
+  const buf = Uint8Array.from(atob(b64), c=>c.charCodeAt(0));
+  const salt = buf.slice(0, 16), iv = buf.slice(16, 28), ct = buf.slice(28);
+  const key = await deriveKey(password, salt);
+  const plain = await crypto.subtle.decrypt({ name:"AES-GCM", iv }, key, ct);
+  return JSON.parse(_dec.decode(plain));
+}
+async function hashPw(pw) {
+  const buf = await crypto.subtle.digest("SHA-256", _enc.encode("finanz_salt_2026_"+pw));
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+
+/* ── Encrypted storage ── */
+let _appPassword = null;
+const load = (k,d) => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):d; } catch{return d;} };
+const save = (k,v) => localStorage.setItem(k,JSON.stringify(v));
+async function loadEncrypted(k, d, pw) {
+  try { const v=localStorage.getItem(k+"_enc"); if(!v) return d; return await decrypt(v, pw); } catch{ return d; }
+}
+async function saveEncrypted(k, v, pw) {
+  const enc = await encrypt(v, pw);
+  localStorage.setItem(k+"_enc", enc);
+  localStorage.removeItem(k); // remove old unencrypted
+}
+
+/* ── File-based persistent storage (works in ALL browsers) ── */
+let _lastFileSave = 0;
+
+function downloadJSON(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename || "finanz-data.json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  _lastFileSave = Date.now();
+}
+
+function importJSON() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".json";
+    input.onchange = async (e) => {
+      const file = e.target.files[0]; if (!file) return resolve(null);
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (data && data.entries) resolve(data);
+        else { alert("Ungueltige Datei: keine Eintraege gefunden."); resolve(null); }
+      } catch { alert("Fehler beim Lesen der Datei."); resolve(null); }
+    };
+    input.click();
+  });
+}
+
+/* ── SOLL data ── */
+const SOLL_NOTGROSCHEN = (() => {
+  const d = {}; d["2026-01"]=0; d["2026-02"]=2455; d["2026-03"]=2455; d["2026-04"]=2455; d["2026-05"]=2455;
+  let v=2455; const start=new Date(2026,5);
+  for(let i=0;i<10;i++){ v+=2595; const dt=new Date(start); dt.setMonth(dt.getMonth()+i); d[mKey(dt)]=Math.min(v,27000); }
+  d["2027-04"]=27000; d["2027-05"]=27000; d["2027-06"]=27000; d["2027-07"]=27000; d["2027-08"]=27000; d["2027-09"]=27000; d["2027-12"]=27000; return d;
+})();
+const SOLL_SCHULDEN = (()=>{ const d={}; d["2026-02"]=4615; d["2026-03"]=3462; d["2026-04"]=2308; d["2026-05"]=1154; d["2026-06"]=0; d["2026-07"]=0; d["2026-08"]=0; return d; })();
+const SOLL_PORTFOLIO = (() => {
+  const pts=[["2026-12",5000],["2027-06",25000],["2027-12",70000],["2028-06",150000],["2028-12",280000],
+    ["2029-06",450000],["2029-12",700000],["2030-06",1000000],["2030-12",1400000],
+    ["2031-06",1850000],["2031-12",2400000],["2032-06",3000000],["2032-12",3700000],
+    ["2033-06",4400000],["2033-12",5000000],["2034-03",5300000]];
+  const d={}; d["2026-02"]=0; d["2026-06"]=0; d["2027-03"]=0; pts.forEach(([k,v])=>d[k]=v);
+  const keys=Object.keys(d).sort(); const all={};
+  for(let i=0;i<keys.length-1;i++){
+    const [y1,m1]=keys[i].split("-").map(Number); const [y2,m2]=keys[i+1].split("-").map(Number);
+    const v1=d[keys[i]],v2=d[keys[i+1]]; const ms1=y1*12+m1,ms2=y2*12+m2;
+    for(let m=ms1;m<=ms2;m++){ const yr=Math.floor((m-1)/12),mo=((m-1)%12)+1;
+      const k=yr+"-"+String(mo).padStart(2,"0"); const t=(m-ms1)/(ms2-ms1); all[k]=Math.round(v1+(v2-v1)*t); }
+  } return all;
+})();
+const SOLL_BUSINESS = (() => {
+  const pts=[["2026-04",0],["2026-07",0],["2026-10",500],["2026-12",1000],
+    ["2027-03",3000],["2027-06",5000],["2027-09",6500],["2027-12",8000],
+    ["2028-06",7500],["2028-12",10000],["2029-06",12500],["2029-12",15000],
+    ["2030-12",18000],["2031-12",20000],["2032-12",22000]];
+  const d={}; pts.forEach(([k,v])=>d[k]=v);
+  const keys=Object.keys(d).sort(); const all={};
+  for(let i=0;i<keys.length-1;i++){
+    const [y1,m1]=keys[i].split("-").map(Number); const [y2,m2]=keys[i+1].split("-").map(Number);
+    const v1=d[keys[i]],v2=d[keys[i+1]]; const ms1=y1*12+m1,ms2=y2*12+m2;
+    for(let m=ms1;m<=ms2;m++){ const yr=Math.floor((m-1)/12),mo=((m-1)%12)+1;
+      const k=yr+"-"+String(mo).padStart(2,"0"); const t=(m-ms1)/(ms2-ms1); all[k]=Math.round(v1+(v2-v1)*t); }
+  } return all;
+})();
+
+/* ── default data ── */
+const NOW = mKey(new Date());
+const STOCKS = ["aapl","amzn","googl","pltr"];
+const STOCK_LABELS = {aapl:"Apple",amzn:"Amazon",googl:"Google",pltr:"Palantir"};
+const CG_IDS = {
+  btc:"bitcoin", gold:"pax-gold",
+  aapl:"apple-ondo-tokenized-stock", amzn:"amazon-ondo-tokenized-stock",
+  googl:"alphabet-class-a-ondo-tokenized-stock", pltr:"palantir-technologies-ondo-tokenized-stock"
+};
+const defaultData = () => ({
+  entries: [
+    { month:"2026-03", sparkonto:0, bargeld:0, schulden_total:0, schulden_bezahlt:0, btc:0, aktien:0, gold:0, biz_rev:0, biz_cost:0, erlebniskasse:0, anschaffungskasse:0, patrik_sparen:0 },
+  ],
+  holdings: { btc:0, gold_oz:0, aapl:0, amzn:0, googl:0, pltr:0 },
+  anschaffungen: [{ id:1, name:"Neue Couch", ziel:3000, gespart:0 }],
+  erlebnisse: [{ id:1, name:"Thailand", ziel:2000, gespart:0 }, { id:2, name:"Brač", ziel:500, gespart:0 }],
+  patrik: {
+    spassgeld: 400,
+    groups: [
+      { id:1, label:"Persönlich", items:[["Fitness",112],["Supplements",50],["Handy",40],["Kleidung",30],["Sonstiges",50]] },
+      { id:2, label:"Business-Kosten", items:[["Hosting/Tools",80],["Domain",5],["Marketing",50],["Weiterbildung",30]] },
+    ],
+    ziele: [{ id:1, name:"MacBook Pro (Business)", ziel:3500, gespart:0 }, { id:2, name:"Notgroschen Patrik", ziel:5000, gespart:0 }],
+  },
+  geldfluss: {
+    income: 9396,
+    fixkosten: [["Miete (inkl. NK-Akonto)",2200],["KK Patrik",380.85],["KK Julia",231],["Fitness Patrik",112],["Fitness Julia",123],["Transport 2x Bus",122],["Handy 2x",80],["Internet",40],["UBS Konto",15],["Grosseltern",200]],
+    essen: [["Lebensmittel & Kochen",1000],["Auswärts / Takeaway",150],["Hygiene",80],["Haushalt",78],["Supplements",65],["Stacking",50],["Hormonring Julia",20]],
+    gemeinsam: [["Haushalt spontan",200],["Ausflüge / Dates",200],["Geschenke",100],["Puffer",163]],
+    periodisch: [["NK/Strom-Puffer",100],["Helvetia Versicherung",95.87],["Serafe",27.92],["Apotheke",17.50]],
+    gesundheit: 150, privat: 400, schulden: 1140,
+    custom: [],
+  }
+});
+
+/* ── Price Hook (BTC, Gold, Stocks — all via CoinGecko) ── */
+function usePrices() {
+  const [prices, setPrices] = useState({ btc:0, gold:0, aapl:0, amzn:0, googl:0, pltr:0 });
+  const [loading, setLoading] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(null);
+
+  const fetchPrices = useCallback(() => {
+    setLoading(true);
+    const ids = Object.values(CG_IDS).join(",");
+    fetch("https://api.coingecko.com/api/v3/simple/price?ids="+ids+"&vs_currencies=chf")
+      .then(r=>r.json()).then(d=>{
+        const p = {};
+        const get = (id) => d[id]?.chf || 0;
+        p.btc = get(CG_IDS.btc); p.gold = get(CG_IDS.gold);
+        STOCKS.forEach(s => p[s] = get(CG_IDS[s]));
+        setPrices(p); setLastUpdate(new Date()); setLoading(false);
+      }).catch(()=>setLoading(false));
+  }, []);
+
+  useEffect(()=>{ fetchPrices(); }, []);
+  return { prices, loading, lastUpdate, refresh: fetchPrices };
+}
+
+/* ── clip SOLL to rolling window ── */
+function clipSoll(istData, sollData, ahead) {
+  const ik = Object.keys(istData).sort();
+  if(!ik.length) return sollData;
+  const [y,m] = ik[ik.length-1].split("-").map(Number);
+  const cut = new Date(y, m-1+(ahead||4)); const ck = mKey(cut);
+  const r = {}; for(const [k,v] of Object.entries(sollData)) { if(k<=ck) r[k]=v; } return r;
+}
+
+/* ── Components ── */
+function Section({ children, style }) {
+  return <div style={{ background:C.card, borderRadius:14, padding:"24px 28px", marginBottom:14,
+    boxShadow:"0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)", ...style }}>{children}</div>;
+}
+function SectionTitle({ children, right }) {
+  return <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+    <span style={{ fontSize:14, fontWeight:600, color:C.white, letterSpacing:"-0.02em" }}>{children}</span>{right}</div>;
+}
+
+function DualLineChart({ title, istData, sollData, unit, height, clipAhead, fillStart }) {
+  const ref = useRef(null); const chart = useRef(null);
+  const dSoll = useMemo(()=> clipAhead?clipSoll(istData,sollData,clipAhead):sollData, [istData,sollData,clipAhead]);
+
+  useEffect(() => {
+    if(!ref.current) return; if(chart.current) chart.current.destroy();
+    const allK = [...new Set([...Object.keys(istData),...Object.keys(dSoll)])].sort();
+    const istKeys=Object.keys(istData).sort();const firstIst=istKeys[0];
+    const fillVal=fillStart!=null?fillStart:0;
+    const filledIst=allK.map(k=>{if(istData[k]!=null)return istData[k];if(firstIst&&k<firstIst)return fillVal;return null;});
+    chart.current = new Chart(ref.current, {
+      type:"line",
+      data:{ labels:allK.map(mLabel), datasets:[
+        { label:"IST", data:filledIst, borderColor:"#1c1c1e", backgroundColor:"rgba(28,28,30,0.10)",
+          borderWidth:1.5, pointRadius:0, pointHoverRadius:4, pointBackgroundColor:"#1c1c1e", fill:true, tension:0.3, spanGaps:true },
+        { label:"SOLL", data:allK.map(k=>dSoll[k]??null), borderColor:"#aeaeb2", borderWidth:1.5, borderDash:[5,4],
+          pointRadius:0, fill:false, tension:0.3, spanGaps:true }
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400,easing:"easeOutQuart"},
+        interaction:{intersect:false,mode:"index"},
+        plugins:{
+          legend:{ display:false },
+          tooltip:{ backgroundColor:"#fff", borderColor:"#e5e5ea", borderWidth:1, titleColor:"#1c1c1e",
+            titleFont:{family:"Inter",weight:600,size:12}, bodyColor:"#3c3c43", bodyFont:{family:"JetBrains Mono",size:12},
+            padding:12, cornerRadius:10, callbacks:{ label:ctx=>ctx.dataset.label+": "+(unit||"CHF ")+fmt(ctx.parsed.y) }}
+        },
+        scales:{
+          x:{ ticks:{color:C.sub,font:{size:10,family:"Inter"},maxRotation:45}, grid:{display:false}, border:{display:false} },
+          y:{ ticks:{color:C.sub,font:{size:10,family:"JetBrains Mono"},callback:v=>(unit||"CHF ")+fmt(v),maxTicksLimit:6},
+            grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false} }
+        }
+      }
+    });
+    return ()=>{ if(chart.current) chart.current.destroy(); };
+  }, [istData,dSoll,unit,title]);
+
+  return <Section><div style={{fontSize:13,fontWeight:500,color:C.muted,marginBottom:14}}>{title}</div>
+    <div style={{height:height||200}}><canvas ref={ref}/></div></Section>;
+}
+
+/* ── Portfolio Chart with zoom + milestones ── */
+function PortfolioChart({ istData, sollData }) {
+  const ref = useRef(null); const chart = useRef(null);
+  const [zoom, setZoom] = useState("all");
+
+  const ZOOMS = {
+    "100k": { max:120000, label:"100k" },
+    "250k": { max:280000, label:"250k" },
+    "500k": { max:550000, label:"500k" },
+    "1M":   { max:1100000, label:"1M" },
+    "2M":   { max:2200000, label:"2M" },
+    "3M":   { max:3300000, label:"3M" },
+    "5M":   { max:5500000, label:"5M" },
+    "all":  { max:null, label:"Alle" },
+  };
+  const MILESTONES = [
+    { v:100000, label:"100k" },
+    { v:250000, label:"250k" },
+    { v:500000, label:"500k" },
+    { v:1000000, label:"1 Mio" },
+    { v:2000000, label:"2 Mio" },
+    { v:3000000, label:"3 Mio" },
+    { v:5000000, label:"5 Mio" },
+    { v:5300000, label:"5.3 Mio" },
+  ];
+
+  const zoomCfg = ZOOMS[zoom];
+  const clippedSoll = useMemo(()=>{
+    if(!zoomCfg.max) return sollData;
+    const r = {};
+    for(const [k,v] of Object.entries(sollData)){ r[k]=v; if(v>=zoomCfg.max) break; }
+    return r;
+  },[sollData, zoom]);
+
+  useEffect(() => {
+    if(!ref.current) return; if(chart.current) chart.current.destroy();
+    const allK = [...new Set([...Object.keys(istData),...Object.keys(clippedSoll)])].sort();
+    const labels = allK.map(mLabel);
+    const visibleMilestones = MILESTONES.filter(m => !zoomCfg.max || m.v <= zoomCfg.max);
+
+    const datasets = [
+      { label:"IST", data:allK.map(k=>istData[k]??null), borderColor:"#1c1c1e", backgroundColor:"rgba(28,28,30,0.10)",
+        borderWidth:1.5, pointRadius:0, pointHoverRadius:4, pointBackgroundColor:"#1c1c1e", fill:true, tension:0.3, spanGaps:true, order:1 },
+      { label:"SOLL", data:allK.map(k=>clippedSoll[k]??null), borderColor:"#aeaeb2", borderWidth:1.5, borderDash:[5,4],
+        pointRadius:0, fill:false, tension:0.3, spanGaps:true, order:2 },
+    ];
+
+    visibleMilestones.forEach(m => {
+      datasets.push({
+        label: m.label, data: allK.map(()=>m.v),
+        borderColor:"#d1d1d6", borderWidth:1, borderDash:[3,3],
+        pointRadius:0, fill:false, tension:0, order:3,
+      });
+    });
+
+    chart.current = new Chart(ref.current, {
+      type:"line", data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400,easing:"easeOutQuart"},
+        interaction:{intersect:false,mode:"index"},
+        plugins:{
+          legend:{ display:false },
+          tooltip:{ backgroundColor:"#fff", borderColor:"#e5e5ea", borderWidth:1, titleColor:"#1c1c1e",
+            titleFont:{family:"Inter",weight:600,size:12}, bodyColor:"#3c3c43", bodyFont:{family:"JetBrains Mono",size:12},
+            padding:12, cornerRadius:10, filter: item => item.dataset.label==="IST"||item.dataset.label==="SOLL",
+            callbacks:{ label:ctx=>ctx.dataset.label+": CHF "+fmt(ctx.parsed.y) }}
+        },
+        scales:{
+          x:{ ticks:{color:C.sub,font:{size:10,family:"Inter"},maxRotation:45}, grid:{display:false}, border:{display:false} },
+          y:{ max:zoomCfg.max||undefined,
+            ticks:{color:C.sub,font:{size:10,family:"JetBrains Mono"},callback:v=>"CHF "+fmt(v),maxTicksLimit:6},
+            grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false},
+            afterFit: function(axis) {
+              // add milestone labels
+            }
+          }
+        }
+      }
+    });
+    return ()=>{ if(chart.current) chart.current.destroy(); };
+  }, [istData, clippedSoll, zoom]);
+
+  const zBtn = (id) => <button key={id} onClick={()=>setZoom(id)} style={{
+    padding:"4px 12px", borderRadius:6, fontSize:11, fontWeight:500, border:"none",
+    background:zoom===id?"#1c1c1e":"#f2f2f7", color:zoom===id?"#fff":"#8e8e93",
+  }}>{ZOOMS[id].label}</button>;
+
+  return <Section>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <span style={{fontSize:13,fontWeight:500,color:C.muted}}>Vermögen</span>
+      <div style={{display:"flex",gap:4}}>
+        {Object.keys(ZOOMS).map(id=>zBtn(id))}
+      </div>
+    </div>
+    <div style={{height:260}}><canvas ref={ref}/></div>
+  </Section>;
+}
+
+/* ── Business Chart with zoom + milestones ── */
+function BusinessChart({ istData, sollData }) {
+  const ref = useRef(null); const chart = useRef(null);
+  const [zoom, setZoom] = useState("all");
+
+  const ZOOMS = {
+    "1k": { max:1200, label:"1k" },
+    "5k": { max:5500, label:"5k" },
+    "10k": { max:11000, label:"10k" },
+    "all": { max:null, label:"Alle" },
+  };
+  const MILESTONES = [
+    { v:1000, label:"1k" },
+    { v:5000, label:"5k" },
+    { v:10000, label:"10k" },
+    { v:20000, label:"20k" },
+  ];
+
+  const zoomCfg = ZOOMS[zoom];
+  const clippedSoll = useMemo(()=>{
+    if(!zoomCfg.max) return sollData;
+    const r = {};
+    for(const [k,v] of Object.entries(sollData)){ r[k]=v; if(v>=zoomCfg.max) break; }
+    return r;
+  },[sollData, zoom]);
+
+  useEffect(() => {
+    if(!ref.current) return; if(chart.current) chart.current.destroy();
+    const allK = [...new Set([...Object.keys(istData),...Object.keys(clippedSoll)])].sort();
+    const labels = allK.map(mLabel);
+    const visibleMs = MILESTONES.filter(m => !zoomCfg.max || m.v <= zoomCfg.max);
+
+    const datasets = [
+      { label:"IST", data:allK.map(k=>istData[k]??null), borderColor:"#1c1c1e", backgroundColor:"rgba(28,28,30,0.10)",
+        borderWidth:1.5, pointRadius:0, pointHoverRadius:4, pointBackgroundColor:"#1c1c1e", fill:true, tension:0.3, spanGaps:true, order:1 },
+      { label:"SOLL", data:allK.map(k=>clippedSoll[k]??null), borderColor:"#aeaeb2", borderWidth:1.5, borderDash:[5,4],
+        pointRadius:0, fill:false, tension:0.3, spanGaps:true, order:2 },
+    ];
+    visibleMs.forEach(m => {
+      datasets.push({ label:m.label, data:allK.map(()=>m.v), borderColor:"#d1d1d6", borderWidth:1, borderDash:[3,3],
+        pointRadius:0, fill:false, tension:0, order:3 });
+    });
+
+    chart.current = new Chart(ref.current, {
+      type:"line", data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false, animation:{duration:400,easing:"easeOutQuart"},
+        interaction:{intersect:false,mode:"index"},
+        plugins:{
+          legend:{ display:false },
+          tooltip:{ backgroundColor:"#fff", borderColor:"#e5e5ea", borderWidth:1, titleColor:"#1c1c1e",
+            titleFont:{family:"Inter",weight:600,size:12}, bodyColor:"#3c3c43", bodyFont:{family:"JetBrains Mono",size:12},
+            padding:12, cornerRadius:10, filter:item=>item.dataset.label==="IST"||item.dataset.label==="SOLL",
+            callbacks:{ label:ctx=>ctx.dataset.label+": CHF "+fmt(ctx.parsed.y)+"/Mo" }}
+        },
+        scales:{
+          x:{ ticks:{color:C.sub,font:{size:10,family:"Inter"},maxRotation:45}, grid:{display:false}, border:{display:false} },
+          y:{ max:zoomCfg.max||undefined,
+            ticks:{color:C.sub,font:{size:10,family:"JetBrains Mono"},callback:v=>"CHF "+fmt(v),maxTicksLimit:6},
+            grid:{color:"#f2f2f7",drawBorder:false}, border:{display:false} }
+        }
+      }
+    });
+    return ()=>{ if(chart.current) chart.current.destroy(); };
+  }, [istData, clippedSoll, zoom]);
+
+  const zBtn = (id) => <button key={id} onClick={()=>setZoom(id)} style={{
+    padding:"4px 12px", borderRadius:6, fontSize:11, fontWeight:500, border:"none",
+    background:zoom===id?"#1c1c1e":"#f2f2f7", color:zoom===id?"#fff":"#8e8e93",
+  }}>{ZOOMS[id].label}</button>;
+
+  return <Section>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <span style={{fontSize:13,fontWeight:500,color:C.muted}}>Business-Profit netto (monatlich)</span>
+      <div style={{display:"flex",gap:4}}>
+        {zBtn("1k")}{zBtn("5k")}{zBtn("10k")}{zBtn("all")}
+      </div>
+    </div>
+    <div style={{height:220}}><canvas ref={ref}/></div>
+  </Section>;
+}
+
+function Progress({ label, value, target }) {
+  const p = pct(value,target);
+  return <div style={{marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.text,marginBottom:6}}>
+      <span style={{fontWeight:500}}>{label}</span>
+      <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:C.sub}}>
+        {fmt(value)} / {fmt(target)} <span style={{marginLeft:8,fontWeight:600,color:p>=100?C.positive:C.text}}>{p}%</span></span>
+    </div>
+    <div style={{height:5,background:"#f2f2f7",borderRadius:3,overflow:"hidden"}}>
+      <div style={{height:"100%",width:Math.min(100,p)+"%",background:C.white,borderRadius:3,transition:"width 0.4s ease"}}/></div></div>;
+}
+
+function ProgressMilestones({ label, value, target, milestones }) {
+  const p = Math.min(100, Math.max(0, value/target*100));
+  const fmtShort = v => v>=1000000?(v/1000000).toFixed(v%1000000===0?0:1)+"M":v>=1000?Math.round(v/1000)+"k":v;
+  return <div style={{marginBottom:18}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.text,marginBottom:6}}>
+      <span style={{fontWeight:500}}>{label}</span>
+      <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:C.sub}}>
+        CHF {fmt(value)} / {fmt(target)} <span style={{marginLeft:8,fontWeight:600,color:p>=100?C.positive:C.text}}>{p.toFixed(2)}%</span></span>
+    </div>
+    <div style={{position:"relative",height:5,background:"#f2f2f7",borderRadius:3,overflow:"visible"}}>
+      <div style={{height:"100%",width:Math.min(100,p)+"%",background:C.white,borderRadius:3,transition:"width 0.4s ease",position:"relative",zIndex:2}}/>
+      {milestones.map((m,i)=>{const mp=m/target*100; return mp<=100?<div key={i} style={{position:"absolute",left:mp+"%",top:-1,width:1,height:7,background:value>=m?"#34c759":"#d1d1d6",zIndex:1}}/>:null;})}
+    </div>
+    <div style={{position:"relative",height:14,marginTop:2}}>
+      {milestones.map((m,i)=>{const mp=m/target*100; return mp<=100?<span key={i} style={{position:"absolute",left:mp+"%",transform:"translateX(-50%)",
+        fontSize:8,color:value>=m?"#34c759":C.dim,fontFamily:"'JetBrains Mono',monospace",fontWeight:500,whiteSpace:"nowrap"}}>{fmtShort(m)}</span>:null;})}
+    </div>
+  </div>;
+}
+
+function EditableList({ items, onChange, label, onDelete, onRename }) {
+  const total = items.reduce((s,i)=>s+i[1],0);
+  const [ed,setEd]=useState(null); const [nn,setNn]=useState(""); const [nv,setNv]=useState("");
+  const upd=(i,f,v)=>onChange(items.map((it,j)=>j===i?(f===0?[v,it[1]]:[it[0],+v]):it));
+  const rm=i=>onChange(items.filter((_,j)=>j!==i));
+  const add=()=>{ if(!nn.trim())return; onChange([...items,[nn.trim(),+nv||0]]); setNn(""); setNv(""); };
+  return <Section>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      {onRename?<input type="text" value={label} onChange={e=>onRename(e.target.value)}
+        style={{fontSize:14,fontWeight:600,color:C.white,background:"transparent",border:"none",padding:0,width:"auto",fontFamily:"Inter"}}/>
+      :<span style={{fontSize:14,fontWeight:600,color:C.white}}>{label}</span>}
+      <span style={{fontSize:14,fontWeight:600,color:C.white,fontFamily:"'JetBrains Mono',monospace"}}>{fmt2(total)}</span>
+    </div>
+    {items.map((it,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 0",
+      borderBottom:i<items.length-1?"1px solid #f2f2f7":"none"}}>
+      {ed===i?<div style={{display:"flex",flex:1,gap:8}} onBlur={e=>{if(!e.currentTarget.contains(e.relatedTarget))setEd(null);}}>
+        <input type="text" value={it[0]} onChange={e=>upd(i,0,e.target.value)} style={{flex:1,fontSize:13,padding:"5px 10px"}}/>
+        <input type="number" value={it[1]} onChange={e=>upd(i,1,e.target.value)} style={{width:100,fontSize:13,padding:"5px 10px",textAlign:"right"}}/></div>
+      :<><span style={{flex:1,fontSize:13,color:C.muted,cursor:"pointer"}} onClick={()=>setEd(i)}>{it[0]}</span>
+        <span style={{fontSize:13,fontFamily:"'JetBrains Mono',monospace",color:C.text,cursor:"pointer",minWidth:80,textAlign:"right"}} onClick={()=>setEd(i)}>{fmt2(it[1])}</span></>}
+    </div>)}
+    <div style={{display:"flex",gap:8,marginTop:12}}>
+      <input type="text" placeholder="Position" value={nn} onChange={e=>setNn(e.target.value)} style={{flex:1,fontSize:12,padding:"7px 12px"}}/>
+      <input type="number" placeholder="CHF" value={nv} onChange={e=>setNv(e.target.value)} style={{width:90,fontSize:12,padding:"7px 12px"}}/>
+      <button onClick={add} style={{background:"#f2f2f7",border:"none",borderRadius:8,color:C.muted,fontSize:12,padding:"7px 14px",fontWeight:500}}>+</button>
+    </div></Section>;
+}
+
+function NumInput({ label, value, onChange, prefix, step }) {
+  return <div style={{marginBottom:4}}>
+    <div style={{fontSize:10,color:C.sub,marginBottom:5,fontWeight:500,textTransform:"uppercase",letterSpacing:0.5}}>{label}</div>
+    <div style={{display:"flex",alignItems:"center",gap:6}}>
+      {prefix&&<span style={{fontSize:12,color:C.sub,fontFamily:"'JetBrains Mono',monospace"}}>{prefix}</span>}
+      <input type="number" value={value} step={step||1} onChange={e=>onChange(+e.target.value)} style={{fontSize:13,padding:"7px 12px"}}/></div></div>;
+}
+
+/* ── Geldfluss Flow Visual ── */
+function GeldflussFlow({ gf, bizProfit, onAddCustom, onUpdateItems, onRemoveCustom, labels }) {
+  const [phase,setPhase]=useState("schulden");
+  const [expanded,setExpanded]=useState(null);
+
+  const fixSum=gf.fixkosten.reduce((s,f)=>s+f[1],0);
+  const essenSum=gf.essen.reduce((s,e)=>s+e[1],0);
+  const gemSum=gf.gemeinsam.reduce((s,g)=>s+g[1],0);
+  const perSum=gf.periodisch.reduce((s,p)=>s+p[1],0);
+  const schulden=phase==="schulden"?gf.schulden:0;
+  const biz=Math.max(0,bizProfit||0);
+  const sparrate=gf.income-fixSum-essenSum-gemSum-gf.privat*2-gf.gesundheit-perSum-schulden;
+  const isInvest=phase==="invest";
+
+  const W=1100, nw=130, nh=48, r=8;
+  const y0=30, y1=115, y2=230, y3=360, y4=470, pad=30;
+
+  const graph = useMemo(()=>{
+    const nodes=[], edges=[];
+    // Two income sources side by side
+    nodes.push({id:"income",x:W/2-220,y:y0,w:200,h:nh,label:"Job-Einkommen",sub:"CHF "+fmt(gf.income)});
+    nodes.push({id:"biz_income",x:W/2+20,y:y0,w:200,h:nh,label:"Business-Einkommen",sub:""});
+    nodes.push({id:"hub",x:W/2-115,y:y1,w:230,h:nh,label:"Gemeinschaftskonto",sub:"UBS · Drehscheibe"});
+    edges.push({from:"income",to:"hub",amt:gf.income});
+
+    const customGroups=(gf.custom||[]);
+    const customSum=customGroups.reduce((s,c)=>s+(c.items||[]).reduce((a,i)=>a+i[1],0),0);
+    const r2=[
+      {id:"fix",label:(labels||{}).fixkosten||"Fixkosten",sub:fmt(Math.round(fixSum)),expandable:true,items:gf.fixkosten,dataKey:"fixkosten"},
+      {id:"essen",label:(labels||{}).essen||"Essen + Versorgung",sub:fmt(Math.round(essenSum)),expandable:true,items:gf.essen,dataKey:"essen"},
+      {id:"gemeinsam",label:(labels||{}).gemeinsam||"Gemeinsam",sub:fmt(Math.round(gemSum)),expandable:true,items:gf.gemeinsam,dataKey:"gemeinsam"},
+      ...customGroups.map(c=>{const cs=(c.items||[]).reduce((s,i)=>s+i[1],0);return{id:"custom_"+c.id,customId:c.id,label:c.label,sub:fmt(Math.round(cs)),expandable:true,items:c.items||[]};}),
+      {id:"patrik",label:"Patrik",sub:fmt(gf.privat)},
+      {id:"julia",label:"Julia",sub:fmt(gf.privat)},
+    ];
+    const gap2=(W-2*pad)/r2.length;
+    r2.forEach((item,i)=>{nodes.push({...item,x:pad+i*gap2+(gap2-nw)/2,y:y2,w:nw,h:nh});});
+    const amts={fix:fixSum,essen:essenSum,gemeinsam:gemSum,patrik:gf.privat,julia:gf.privat};
+    customGroups.forEach(c=>{const cs=(c.items||[]).reduce((s,i)=>s+i[1],0);amts["custom_"+c.id]=cs;});
+    r2.forEach(item=>{edges.push({from:"hub",to:item.id,amt:amts[item.id]||0});});
+
+    const r3=[];
+    r3.push({id:"gesundheit",label:"Gesundheit",sub:fmt(gf.gesundheit)+"/Mo"});
+    r3.push({id:"period",label:(labels||{}).periodisch||"Period. Kosten",sub:fmt(Math.round(perSum))+"/Mo",expandable:true,items:gf.periodisch,dataKey:"periodisch"});
+    if(phase==="schulden") r3.push({id:"schuld",label:"Schulden",sub:fmt(schulden)+"/Mo",highlight:true});
+    const goalId=isInvest?"invest_node":"notgroschen";
+    r3.push({id:goalId,label:isInvest?"Investment":"Notgroschen",sub:fmt(Math.round(sparrate))+"/Mo",highlight:phase!=="schulden"});
+    r3.push({id:"sparziele",label:"Sparziele",sub:"Überschüsse"});
+    r3.push({id:"erlebnis",label:"Erlebniskasse",sub:"Überschüsse"});
+
+    const gap3=(W-2*pad)/r3.length;
+    r3.forEach((item,i)=>{nodes.push({...item,x:pad+i*gap3+(gap3-nw)/2,y:y3,w:nw,h:nh});});
+    r3.forEach(item=>{
+      if(item.id==="erlebnis"||item.id==="sparziele")return;
+      const am={gesundheit:gf.gesundheit,period:perSum,schuld:schulden,[goalId]:sparrate};
+      edges.push({from:"hub",to:item.id,amt:am[item.id]||0});
+    });
+    // Business income → current focus goal
+    const bizTarget=phase==="schulden"?"schuld":goalId;
+    edges.push({from:"biz_income",to:bizTarget,amt:biz});
+
+    ["fix","essen","gemeinsam",...customGroups.map(c=>"custom_"+c.id),"patrik","julia","gesundheit","period"].forEach(src=>{
+      edges.push({from:src,to:"erlebnis",amt:null,dashed:true});
+    });
+
+    if(isInvest){
+      const btc=Math.round(sparrate*0.5),akt=Math.round(sparrate*0.25),gld=Math.round(sparrate)-btc-akt;
+      [{id:"btc",label:"Bitcoin 50%",sub:fmt(btc),amt:btc},{id:"aktien",label:"Aktien 25%",sub:fmt(akt),amt:akt},
+       {id:"gold",label:"Gold 25%",sub:fmt(gld),amt:gld}].forEach((item,i)=>{
+        const bGap=(W-300)/3;
+        nodes.push({...item,x:150+i*bGap+(bGap-nw)/2,y:y4,w:nw,h:42});
+        edges.push({from:"invest_node",to:item.id,amt:item.amt});
+      });
+    }
+    return {nodes,edges,svgH:isInvest?y4+42+30:y3+nh+30};
+  },[phase,gf,sparrate,schulden,isInvest,fixSum,essenSum,gemSum,perSum,biz,labels]);
+
+  const nodeMap={}; graph.nodes.forEach(n=>{nodeMap[n.id]=n;});
+  const vPath=(fid,tid)=>{const f=nodeMap[fid],t=nodeMap[tid]; if(!f||!t)return"";
+    const fx=f.x+f.w/2,fy=f.y+f.h,tx=t.x+t.w/2,ty=t.y,g=ty-fy;
+    return"M"+fx+","+fy+" C"+fx+","+(fy+g*0.5)+" "+tx+","+(ty-g*0.5)+" "+tx+","+ty;};
+  const dotDur=a=>{if(!a)return 7;if(a>5000)return 3;if(a>2000)return 3.6;if(a>1000)return 4.2;if(a>500)return 5;if(a>200)return 5.6;return 6.5;};
+  const dotCount=a=>{if(!a)return 1;if(a>3000)return 3;if(a>1000)return 2;return 1;};
+
+  const expNode=expanded?graph.nodes.find(n=>n.id===expanded):null;
+  const expItems=expNode?.items; const expTotal=expItems?expItems.reduce((s,i)=>s+i[1],0):0;
+
+  const phaseInfo={
+    schulden:{t:"Phase 1: Schulden tilgen",d:"1'140 CHF/Mo (Feb–Mai 26)"},
+    notgroschen:{t:"Phase 2: Notgroschen",d:"Ziel 27'000 CHF (6 Monatsausgaben)"},
+    invest:{t:"Phase 3: Investieren",d:"Barbell: 50% BTC · 25% Aktien · 25% Gold"},
+  };
+
+  return <div>
+    <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:10}}>
+      {[{id:"schulden",l:"Schulden",s:"Feb–Mai 26"},{id:"notgroschen",l:"Notgroschen",s:"Jun 26–Mär 27"},{id:"invest",l:"Investieren",s:"Ab Apr 27"}].map(p=>
+        <button key={p.id} onClick={()=>{setPhase(p.id);setExpanded(null);}} style={{
+          padding:"7px 16px",borderRadius:8,fontSize:12,fontWeight:500,
+          border:"none",background:phase===p.id?"#1c1c1e":"#f2f2f7",
+          color:phase===p.id?"#fff":"#636366",
+        }}>{p.l} <span style={{fontSize:9,opacity:0.6}}>· {p.s}</span></button>
+      )}
+    </div>
+    <div style={{textAlign:"center",marginBottom:12}}>
+      <span style={{fontSize:11,color:C.white,fontWeight:500}}>{phaseInfo[phase].t}</span>
+      <span style={{fontSize:10,color:C.sub,marginLeft:8}}>{phaseInfo[phase].d}</span>
+    </div>
+
+    <Section style={{padding:"16px 12px",overflow:"auto"}}>
+      <svg key={phase} viewBox={"0 0 "+W+" "+graph.svgH} width="100%" style={{display:"block",minHeight:340}}>
+        {graph.edges.map((edge,i)=>{
+          const d=vPath(edge.from,edge.to); if(!d)return null;
+          const pid="e"+i; const thick=edge.amt?Math.max(1.2,Math.min(4,edge.amt/1400)):1;
+          const dur=dotDur(edge.amt); const dots=dotCount(edge.amt); const isDash=edge.dashed;
+          const eCol=isDash?"#34c759":C.flow;
+          return <g key={pid}>
+            <path d={d} fill="none" stroke={eCol} strokeWidth={isDash?0.8:thick} opacity={isDash?0.25:0.2}
+              strokeDasharray={isDash?"7 4":"1000"} strokeDashoffset={isDash?0:1000}
+              style={isDash?{animation:"dashFlow 1.5s linear infinite"}:{animation:"draw 1.2s ease-out "+(0.1+i*0.04)+"s forwards"}}/>
+            <path id={pid+"p"} d={d} fill="none" stroke="none"/>
+            {!isDash&&Array.from({length:dots}).map((_,di)=>
+              <circle key={di} r={Math.min(2.5,thick+0.3)} fill={C.flow} opacity="0.5"
+                style={{animation:"fadeIn 0.4s ease "+(0.8+i*0.06)+"s both"}}>
+                <animateMotion dur={dur+"s"} repeatCount="indefinite" begin={(0.8+i*0.08+di*(dur/dots))+"s"}>
+                  <mpath href={"#"+pid+"p"}/></animateMotion></circle>)}
+            {isDash&&<circle r="1.5" fill="#34c759" opacity="0.3">
+              <animateMotion dur="8s" repeatCount="indefinite" begin={(1.5+i*0.3)+"s"}>
+                <mpath href={"#"+pid+"p"}/></animateMotion></circle>}
+          </g>;
+        })}
+        {graph.nodes.map((node,i)=>{
+          const isExp=node.expandable; const isHi=node.highlight; const isActive=expanded===node.id;
+          return <g key={node.id} onClick={isExp?()=>setExpanded(prev=>prev===node.id?null:node.id):undefined}
+            style={{cursor:isExp?"pointer":"default",animation:"fadeIn 0.4s ease "+(i*0.03)+"s both"}}>
+            <rect x={node.x} y={node.y} width={node.w} height={node.h} rx={r}
+              fill={C.nodeBg} stroke={isActive?"#1c1c1e":isHi?"#1c1c1e":C.nodeBorder} strokeWidth={isActive||isHi?1.5:1}/>
+            {isExp&&<text x={node.x+6} y={node.y+12} fill={C.sub} style={{fontSize:7,fontWeight:600}}>{isActive?"▲":"▼"}</text>}
+            <text x={node.x+node.w/2} y={node.sub?node.y+18:node.y+node.h/2+4} textAnchor="middle" fill={C.white}
+              style={{fontSize:10.5,fontWeight:600,fontFamily:"Inter,system-ui,sans-serif"}}>{node.label}</text>
+            {node.sub&&<text x={node.x+node.w/2} y={node.y+32} textAnchor="middle" fill={C.muted}
+              style={{fontSize:10.5,fontWeight:600,fontFamily:"JetBrains Mono,monospace"}}>{node.sub}</text>}
+          </g>;
+        })}
+      </svg>
+    </Section>
+
+    {expItems&&expNode&&(()=>{
+      const dk=expNode.dataKey; const cid=expNode.customId;
+      const canEdit=!!(dk||cid);
+      const doUpdate=(ni)=>{if(!onUpdateItems)return;if(dk)onUpdateItems(dk,ni);else if(cid)onUpdateItems("__custom",cid,ni);};
+      const moveItem=(idx,dir)=>{if(!canEdit)return;const ni=[...expItems];const t=ni[idx];ni[idx]=ni[idx+dir];ni[idx+dir]=t;doUpdate(ni);};
+      const delItem=(idx)=>{if(!canEdit)return;const ni=expItems.filter((_,j)=>j!==idx);doUpdate(ni);if(ni.length===0)setExpanded(null);};
+      return <Section style={{animation:"fadeIn 0.25s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <span style={{fontSize:13,fontWeight:600,color:C.white}}>{expNode.label} · Einzelposten</span>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {cid&&onRemoveCustom&&<span onClick={()=>{setExpanded(null);onRemoveCustom(cid);}} style={{cursor:"pointer",fontSize:11,color:C.sub,padding:"6px 12px",borderRadius:6,background:"#f2f2f7"}}>Konto löschen</span>}
+          <span onClick={()=>setExpanded(null)} style={{cursor:"pointer",fontSize:14,color:C.sub,padding:"6px 10px",borderRadius:6,background:"#f2f2f7"}}>✕</span>
+        </div>
+      </div>
+      {expItems.map((item,i)=>{const pctW=Math.max(8,item[1]/expTotal*100);
+        return <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",
+          borderBottom:i<expItems.length-1?"1px solid #f2f2f7":"none"}}>
+          {canEdit&&<div style={{display:"flex",flexDirection:"column",gap:1}}>
+            <span onClick={()=>i>0&&moveItem(i,-1)} style={{cursor:i>0?"pointer":"default",opacity:i>0?0.6:0.15,fontSize:10,lineHeight:1,padding:"1px 3px",color:C.muted}}>▲</span>
+            <span onClick={()=>i<expItems.length-1&&moveItem(i,1)} style={{cursor:i<expItems.length-1?"pointer":"default",opacity:i<expItems.length-1?0.6:0.15,fontSize:10,lineHeight:1,padding:"1px 3px",color:C.muted}}>▼</span>
+          </div>}
+          <span style={{fontSize:12,color:C.muted,flex:1}}>{item[0]}</span>
+          <div style={{width:60,height:4,background:"#f2f2f7",borderRadius:2,overflow:"hidden"}}>
+            <div style={{height:"100%",width:pctW+"%",background:"#d1d1d6",borderRadius:2}}/></div>
+          <span style={{fontSize:12,fontWeight:500,fontFamily:"'JetBrains Mono',monospace",color:C.text,minWidth:70,textAlign:"right"}}>{fmt2(item[1])}</span>
+          {canEdit&&<span onClick={()=>delItem(i)} style={{cursor:"pointer",fontSize:11,color:C.dim,padding:"2px 4px"}}>✕</span>}
+        </div>;})}
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:10,borderTop:"1px solid #f2f2f7",fontSize:13,fontWeight:600}}>
+        <span style={{color:C.white}}>Total</span>
+        <span style={{color:C.white,fontFamily:"'JetBrains Mono',monospace"}}>CHF {fmt2(expTotal)}</span></div>
+    </Section>;})()}
+
+    <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:4,fontSize:10,color:C.sub}}>
+      <span>▼ = klickbar</span>
+      <span style={{color:"#34c759"}}>- - - Überschüsse → Erlebniskasse</span>
+    </div>
+  </div>;
+}
+
+/* ── Patrik Personal Geldfluss ── */
+function PatrikFlow({ patrik, spassgeld, onRemoveGroup, onUpdateGroupItems }) {
+  const spass = spassgeld || patrik.spassgeld || 400;
+  const groups = patrik.groups || [];
+  const groupsTotal = groups.reduce((s,g)=>s+(g.items||[]).reduce((a,i)=>a+i[1],0),0);
+  const rest = Math.max(0, spass - groupsTotal);
+
+  const W=900, nw=130, nh=48, r=8;
+  const y0=30, y1=120, y2=240;
+
+  const graph = useMemo(()=>{
+    const nodes=[], edges=[];
+
+    nodes.push({id:"haushalt",x:W/2-100,y:y0,w:200,h:nh,label:"Spassgeld",sub:"CHF "+fmt(spass)+"/Mo"});
+    nodes.push({id:"patrik_hub",x:W/2-100,y:y1,w:200,h:nh,label:"Patrik",sub:"Persönliches Budget"});
+    edges.push({from:"haushalt",to:"patrik_hub",amt:spass});
+
+    const items = [];
+    groups.forEach(g=>{const gs=(g.items||[]).reduce((s,i)=>s+i[1],0);
+      items.push({id:"grp_"+g.id,groupId:g.id,label:g.label,sub:fmt(gs)+"/Mo",expandable:true,itemList:g.items||[],deletable:true});});
+    items.push({id:"sparziele",label:"Sparziele",sub:"Überschüsse"});
+
+    const gap=(W-60)/items.length;
+    items.forEach((item,i)=>{
+      nodes.push({...item,x:30+i*gap+(gap-nw)/2,y:y2,w:nw,h:nh});
+    });
+    groups.forEach(g=>{const gs=(g.items||[]).reduce((s,i)=>s+i[1],0);
+      edges.push({from:"patrik_hub",to:"grp_"+g.id,amt:gs});});
+    edges.push({from:"patrik_hub",to:"sparziele",amt:0});
+
+    return {nodes,edges,svgH:y2+nh+40};
+  },[spass,groups,rest,groupsTotal]);
+
+  const [expanded,setExpanded]=useState(null);
+  const nodeMap={}; graph.nodes.forEach(n=>{nodeMap[n.id]=n;});
+  const vPath=(fid,tid)=>{const f=nodeMap[fid],t=nodeMap[tid]; if(!f||!t)return"";
+    const fx=f.x+f.w/2,fy=f.y+f.h,tx=t.x+t.w/2,ty=t.y,g=ty-fy;
+    return"M"+fx+","+fy+" C"+fx+","+(fy+g*0.5)+" "+tx+","+(ty-g*0.5)+" "+tx+","+ty;};
+  const dotDur=a=>{if(!a)return 7;if(a>5000)return 3;if(a>2000)return 3.6;if(a>1000)return 4.2;if(a>500)return 5;if(a>200)return 5.6;return 6.5;};
+  const dotCount=a=>{if(!a)return 1;if(a>3000)return 3;if(a>1000)return 2;return 1;};
+
+  const expNode=expanded?graph.nodes.find(n=>n.id===expanded):null;
+  const expItems=expNode?.itemList; const expTotal=expItems?expItems.reduce((s,i)=>s+i[1],0):0;
+
+  return <div>
+    <Section style={{padding:"16px 12px",overflow:"auto"}}>
+      <svg viewBox={"0 0 "+W+" "+graph.svgH} width="100%" style={{display:"block",minHeight:280}}>
+        <style>{`
+          @keyframes draw{from{stroke-dashoffset:1000}to{stroke-dashoffset:0}}
+          @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+          @keyframes dashFlow{to{stroke-dashoffset:-11}}
+        `}</style>
+        {graph.edges.map((edge,i)=>{
+          const d=vPath(edge.from,edge.to); if(!d)return null;
+          const pid="pe"+i; const thick=edge.amt?Math.max(1.2,Math.min(4,edge.amt/400)):1;
+          const dur=dotDur(edge.amt); const dots=dotCount(edge.amt); const isDash=edge.dashed;
+          const eCol=isDash?"#ff9500":C.flow;
+          return <g key={pid}>
+            <path d={d} fill="none" stroke={eCol} strokeWidth={isDash?0.8:thick} opacity={isDash?0.3:0.2}
+              strokeDasharray={isDash?"7 4":"1000"} strokeDashoffset={isDash?0:1000}
+              style={isDash?{animation:"dashFlow 1.5s linear infinite"}:{animation:"draw 1.2s ease-out "+(0.1+i*0.04)+"s forwards"}}/>
+            <path id={pid+"p"} d={d} fill="none" stroke="none"/>
+            {!isDash&&Array.from({length:dots}).map((_,di)=>
+              <circle key={di} r={Math.min(2.5,thick+0.3)} fill={C.flow} opacity="0.5"
+                style={{animation:"fadeIn 0.4s ease "+(0.8+i*0.06)+"s both"}}>
+                <animateMotion dur={dur+"s"} repeatCount="indefinite" begin={(0.8+i*0.08+di*(dur/dots))+"s"}>
+                  <mpath href={"#"+pid+"p"}/></animateMotion></circle>)}
+            {isDash&&<circle r="1.5" fill="#ff9500" opacity="0.4">
+              <animateMotion dur="6s" repeatCount="indefinite" begin={(1.5+i*0.3)+"s"}>
+                <mpath href={"#"+pid+"p"}/></animateMotion></circle>}
+          </g>;
+        })}
+        {graph.nodes.map((node,i)=>{
+          const isExp=node.expandable; const isHi=node.highlight; const isActive=expanded===node.id;
+          return <g key={node.id} onClick={isExp?()=>setExpanded(prev=>prev===node.id?null:node.id):undefined}
+            style={{cursor:isExp?"pointer":"default",animation:"fadeIn 0.4s ease "+(i*0.03)+"s both"}}>
+            <rect x={node.x} y={node.y} width={node.w} height={node.h} rx={r}
+              fill={C.nodeBg} stroke={isActive?"#1c1c1e":isHi?"#1c1c1e":C.nodeBorder} strokeWidth={isActive||isHi?1.5:1}/>
+            {isExp&&<text x={node.x+6} y={node.y+12} fill={C.sub} style={{fontSize:7,fontWeight:600}}>{isActive?"▲":"▼"}</text>}
+            <text x={node.x+node.w/2} y={node.sub?node.y+18:node.y+node.h/2+4} textAnchor="middle" fill={C.white}
+              style={{fontSize:10.5,fontWeight:600,fontFamily:"Inter,system-ui,sans-serif"}}>{node.label}</text>
+            {node.sub&&<text x={node.x+node.w/2} y={node.y+32} textAnchor="middle" fill={C.muted}
+              style={{fontSize:10.5,fontWeight:600,fontFamily:"JetBrains Mono,monospace"}}>{node.sub}</text>}
+          </g>;
+        })}
+      </svg>
+    </Section>
+
+    {expItems&&expNode&&(()=>{
+      const gid=expNode.groupId;
+      const moveItem=(idx,dir)=>{if(!onUpdateGroupItems||!gid)return;const ni=[...expItems];const t=ni[idx];ni[idx]=ni[idx+dir];ni[idx+dir]=t;onUpdateGroupItems(gid,ni);};
+      const delItem=(idx)=>{if(!onUpdateGroupItems||!gid)return;const ni=expItems.filter((_,j)=>j!==idx);onUpdateGroupItems(gid,ni);if(ni.length===0)setExpanded(null);};
+      return <Section style={{animation:"fadeIn 0.25s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <span style={{fontSize:13,fontWeight:600,color:C.white}}>{expNode.label} · Einzelposten</span>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {gid&&<span onClick={()=>{setExpanded(null);if(onRemoveGroup)onRemoveGroup(gid);}} style={{cursor:"pointer",fontSize:11,color:C.sub,padding:"6px 12px",borderRadius:6,background:"#f2f2f7"}}>Konto löschen</span>}
+          <span onClick={()=>setExpanded(null)} style={{cursor:"pointer",fontSize:14,color:C.sub,padding:"6px 10px",borderRadius:6,background:"#f2f2f7"}}>✕</span>
+        </div>
+      </div>
+      {expItems.map((item,i)=>{const pctW=Math.max(8,item[1]/expTotal*100);
+        return <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 0",
+          borderBottom:i<expItems.length-1?"1px solid #f2f2f7":"none"}}>
+          {gid&&<div style={{display:"flex",flexDirection:"column",gap:1}}>
+            <span onClick={()=>i>0&&moveItem(i,-1)} style={{cursor:i>0?"pointer":"default",opacity:i>0?0.6:0.15,fontSize:10,lineHeight:1,padding:"1px 3px",color:C.muted}}>▲</span>
+            <span onClick={()=>i<expItems.length-1&&moveItem(i,1)} style={{cursor:i<expItems.length-1?"pointer":"default",opacity:i<expItems.length-1?0.6:0.15,fontSize:10,lineHeight:1,padding:"1px 3px",color:C.muted}}>▼</span>
+          </div>}
+          <span style={{fontSize:12,color:C.muted,flex:1}}>{item[0]}</span>
+          <div style={{width:60,height:4,background:"#f2f2f7",borderRadius:2,overflow:"hidden"}}>
+            <div style={{height:"100%",width:pctW+"%",background:"#d1d1d6",borderRadius:2}}/></div>
+          <span style={{fontSize:12,fontWeight:500,fontFamily:"'JetBrains Mono',monospace",color:C.text,minWidth:70,textAlign:"right"}}>{fmt2(item[1])}</span>
+          {gid&&<span onClick={()=>delItem(i)} style={{cursor:"pointer",fontSize:11,color:C.dim,padding:"2px 4px"}}>✕</span>}
+        </div>;})}
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:10,borderTop:"1px solid #f2f2f7",fontSize:13,fontWeight:600}}>
+        <span style={{color:C.white}}>Total</span>
+        <span style={{color:C.white,fontFamily:"'JetBrains Mono',monospace"}}>CHF {fmt2(expTotal)}</span></div>
+    </Section>;})()}
+
+  </div>;
+}
+
+/* ══════════════ MAIN APP ══════════════ */
+function App() {
+  const [tab,setTab]=useState("dashboard");
+  const [data,setData]=useState(()=>load("finanz_data",defaultData()));
+  const [unsavedChanges,setUnsavedChanges]=useState(false);
+  const [saveMsg,setSaveMsg]=useState("");
+  const {prices,loading,lastUpdate,refresh}=usePrices();
+
+  // Warn before leaving with unsaved changes
+  useEffect(()=>{
+    const handler = (e) => { if(unsavedChanges){ e.preventDefault(); e.returnValue=""; } };
+    window.addEventListener("beforeunload", handler);
+    return ()=>window.removeEventListener("beforeunload", handler);
+  },[unsavedChanges]);
+
+  const handleSaveToFile = useCallback(()=>{
+    downloadJSON(data, "finanz-data.json");
+    setUnsavedChanges(false);
+    setSaveMsg("Gespeichert!");
+    setTimeout(()=>setSaveMsg(""),2000);
+  },[data]);
+
+  const handleLoadFromFile = useCallback(async()=>{
+    const imported = await importJSON();
+    if(imported){
+      setData(imported);
+      save("finanz_data",imported);
+      setUnsavedChanges(false);
+      setSaveMsg("Daten geladen!");
+      setTimeout(()=>setSaveMsg(""),2000);
+    }
+  },[]);
+
+  const persist=useCallback(fn=>{setData(prev=>{
+    const next=typeof fn==="function"?fn(prev):fn;
+    save("finanz_data",next);
+    setUnsavedChanges(true);
+    return next;
+  });},[]);
+
+const entries=data.entries||[];
+  const latest=entries[entries.length-1]||{};
+  const h=data.holdings||{};
+
+  /* migrate old holdings format */
+  const holdings = useMemo(()=>{
+    if(h.btc_amount!==undefined) return {btc:h.btc_amount||0,gold_oz:h.gold_units||0,aapl:0,amzn:0,googl:0,pltr:0};
+    return {btc:h.btc||0,gold_oz:h.gold_oz||0,aapl:h.aapl||0,amzn:h.amzn||0,googl:h.googl||0,pltr:h.pltr||0};
+  },[h]);
+
+  const pv = useMemo(()=>{
+    const btc=(holdings.btc||0)*(prices.btc||0);
+    const gold=(holdings.gold_oz||0)*(prices.gold||0);
+    const stocks=STOCKS.reduce((s,k)=>s+(holdings[k]||0)*(prices[k]||0),0);
+    return {btc,gold,stocks,total:btc+gold+stocks};
+  },[holdings,prices]);
+
+  const cashTotal=(latest.sparkonto||0)+(latest.bargeld||0);
+  const schuldenCHF=Math.max(0,(latest.schulden_total||latest.schulden||0)-(latest.schulden_bezahlt||0));
+  const netWorth=cashTotal+pv.total-schuldenCHF;
+
+  const istNG=useMemo(()=>{const d={};entries.forEach(e=>d[e.month]=(e.sparkonto||0)+(e.bargeld||0));return d;},[entries]);
+  const istSch=useMemo(()=>{const d={};entries.forEach(e=>d[e.month]=Math.max(0,(e.schulden_total||e.schulden||0)-(e.schulden_bezahlt||0)));return d;},[entries]);
+  const istPf=useMemo(()=>{const d={};entries.forEach(e=>d[e.month]=(e.btc||0)+(e.aktien||0)+(e.gold||0));return d;},[entries]);
+  const istBiz=useMemo(()=>{const d={};entries.forEach(e=>d[e.month]=(e.biz_rev||0)-(e.biz_cost||0));return d;},[entries]);
+
+  const addEntry=()=>{
+    const last=entries[entries.length-1]; const [y,m]=(last?.month||NOW).split("-").map(Number);
+    const nd=new Date(y,m);
+    console.log("addEntry: adding month", mKey(nd));
+    persist(prev=>({...prev,entries:[...prev.entries,{month:mKey(nd),sparkonto:last?.sparkonto||0,bargeld:last?.bargeld||0,
+      schulden_total:last?.schulden_total||last?.schulden||0,schulden_bezahlt:last?.schulden_bezahlt||0,btc:pv.btc||0,aktien:pv.stocks||0,gold:pv.gold||0,biz_rev:0,biz_cost:0,erlebniskasse:last?.erlebniskasse||0,anschaffungskasse:last?.anschaffungskasse||0,patrik_sparen:last?.patrik_sparen||0}]}));
+  };
+  const updateEntry=(idx,f,v)=>{persist(prev=>{const n=[...prev.entries];n[idx]={...n[idx],[f]:+v};return{...prev,entries:n};});};
+  const removeEntry=idx=>{persist(prev=>{const ne=prev.entries.filter((_,i)=>i!==idx);if(ne.length===0){const nd=new Date();return{...prev,entries:[{month:mKey(nd),sparkonto:0,bargeld:0,schulden_total:0,schulden_bezahlt:0,btc:0,aktien:0,gold:0,biz_rev:0,biz_cost:0,erlebniskasse:0,anschaffungskasse:0,patrik_sparen:0}]};}return{...prev,entries:ne};});};
+
+  const gf=data.geldfluss||defaultData().geldfluss;
+  const gfLabels=gf.labels||{};
+  const gfCustom=gf.custom||[];
+  const gfSum=arr=>(arr||[]).reduce((s,i)=>s+i[1],0);
+  const updateGF=(k,v)=>persist(prev=>({...prev,geldfluss:{...prev.geldfluss,[k]:v}}));
+  const renameGFBuiltin=(key,label)=>updateGF("labels",{...gfLabels,[key]:label});
+  const addGFCustom=()=>updateGF("custom",[...gfCustom,{id:Date.now(),label:"Neues Konto",items:[["Position",0]]}]);
+  const updateGFCustom=(id,items)=>updateGF("custom",gfCustom.map(c=>c.id===id?{...c,items}:c));
+  const renameGFCustom=(id,label)=>updateGF("custom",gfCustom.map(c=>c.id===id?{...c,label}:c));
+  const removeGFCustom=id=>updateGF("custom",gfCustom.filter(c=>c.id!==id));
+  const gfCustomTotal=gfCustom.reduce((s,c)=>s+gfSum(c.items),0);
+  const gfTotalOut=gfSum(gf.fixkosten)+gfSum(gf.essen)+gfSum(gf.gemeinsam)+gfSum(gf.periodisch)+gf.gesundheit+gf.privat*2+gf.schulden+gfCustomTotal;
+  const gfSparrateNet=gf.income-gfTotalOut;
+
+  const erlebnisse=data.erlebnisse||[];
+  const addErlebnis=()=>persist(prev=>({...prev,erlebnisse:[...prev.erlebnisse,{id:Date.now(),name:"Neues Ziel",ziel:1000,gespart:0}]}));
+  const updateErlebnis=(id,f,v)=>persist(prev=>({...prev,erlebnisse:prev.erlebnisse.map(e=>e.id===id?{...e,[f]:f==="name"?v:+v}:e)}));
+  const removeErlebnis=id=>persist(prev=>({...prev,erlebnisse:prev.erlebnisse.filter(e=>e.id!==id)}));
+
+  const anschaffungen=data.anschaffungen||[];
+  const addAnschaffung=()=>persist(prev=>({...prev,anschaffungen:[...(prev.anschaffungen||[]),{id:Date.now(),name:"Neues Sparziel",ziel:1000,gespart:0}]}));
+  const updateAnschaffung=(id,f,v)=>persist(prev=>({...prev,anschaffungen:(prev.anschaffungen||[]).map(a=>a.id===id?{...a,[f]:f==="name"?v:+v}:a)}));
+  const removeAnschaffung=id=>persist(prev=>({...prev,anschaffungen:(prev.anschaffungen||[]).filter(a=>a.id!==id)}));
+
+  const updateHolding=(k,v)=>persist(prev=>({...prev,holdings:{...prev.holdings,[k]:v}}));
+
+  const _defPatrik=defaultData().patrik;
+  const patrik=useMemo(()=>{
+    const p=data.patrik||{};
+    // migrate old format (ausgaben/biz_kosten) to groups
+    let groups=p.groups;
+    if(!groups){
+      groups=[];
+      if(p.ausgaben||_defPatrik.groups[0]) groups.push({id:1,label:"Persönlich",items:p.ausgaben||_defPatrik.groups[0].items});
+      if(p.biz_kosten||_defPatrik.groups[1]) groups.push({id:2,label:"Business-Kosten",items:p.biz_kosten||_defPatrik.groups[1].items});
+      if(p.custom) p.custom.forEach(c=>groups.push(c));
+    }
+    return {spassgeld:p.spassgeld??_defPatrik.spassgeld, groups:groups||_defPatrik.groups, ziele:p.ziele||_defPatrik.ziele};
+  },[data.patrik]);
+  const updatePatrik=(k,v)=>persist(prev=>{const p={..._defPatrik,...(prev.patrik||{})}; return{...prev,patrik:{...p,[k]:v}};});
+  const addPatrikZiel=()=>persist(prev=>{const p={..._defPatrik,...(prev.patrik||{})}; return{...prev,patrik:{...p,ziele:[...(p.ziele||[]),{id:Date.now(),name:"Neues Ziel",ziel:1000,gespart:0}]}};});
+  const updatePatrikZiel=(id,f,v)=>persist(prev=>{const p={..._defPatrik,...(prev.patrik||{})}; return{...prev,patrik:{...p,ziele:(p.ziele||[]).map(z=>z.id===id?{...z,[f]:f==="name"?v:+v}:z)}};});
+  const removePatrikZiel=id=>persist(prev=>{const p={..._defPatrik,...(prev.patrik||{})}; return{...prev,patrik:{...p,ziele:(p.ziele||[]).filter(z=>z.id!==id)}};});
+  const addPatrikGroup=()=>updatePatrik("groups",[...patrik.groups,{id:Date.now(),label:"Neues Konto",items:[["Position",0]]}]);
+  const updatePatrikGroup=(id,items)=>updatePatrik("groups",patrik.groups.map(g=>g.id===id?{...g,items}:g));
+  const renamePatrikGroup=(id,label)=>updatePatrik("groups",patrik.groups.map(g=>g.id===id?{...g,label}:g));
+  const removePatrikGroup=id=>updatePatrik("groups",patrik.groups.filter(g=>g.id!==id));
+  const bizProfit=(latest.biz_rev||0)-(latest.biz_cost||0);
+
+  const tabBtn=(id,label)=><button key={id} onClick={()=>setTab(id)} style={{
+    padding:"8px 22px",borderRadius:8,fontSize:12,fontWeight:500,border:"none",
+    background:tab===id?C.card:"transparent",color:tab===id?C.white:C.sub,
+    boxShadow:tab===id?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
+    {label}</button>;
+
+  return <div style={{minHeight:"100vh",background:C.bg,padding:"32px 24px"}}>
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
+
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:28}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:700,color:C.white,letterSpacing:"-0.03em"}}>Finanz-Dashboard</h1>
+          <p style={{fontSize:12,color:C.sub,marginTop:3}}>Patrik & Julia</p>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <button onClick={refresh} style={{
+            background:"#f2f2f7",border:"none",borderRadius:8,padding:"8px 14px",
+            fontSize:11,fontWeight:500,color:C.muted,display:"flex",alignItems:"center",gap:6}}>
+            <span style={loading?{animation:"spin 1s linear infinite",display:"inline-block"}:{}}>↻</span>
+            Kurse
+          </button>
+          {lastUpdate&&<span style={{fontSize:10,color:C.dim}}>{lastUpdate.toLocaleTimeString("de-CH",{hour:"2-digit",minute:"2-digit"})}</span>}
+          <button onClick={handleSaveToFile} style={{
+            background:unsavedChanges?"#1c1c1e":"#f2f2f7",border:"none",borderRadius:8,padding:"8px 16px",
+            fontSize:11,fontWeight:600,color:unsavedChanges?"#fff":"#8e8e93",display:"flex",alignItems:"center",gap:5,
+            marginLeft:4,transition:"all 0.2s"}}>
+            {unsavedChanges?"● ":""}Sichern
+          </button>
+          <button onClick={handleLoadFromFile} style={{
+            background:"#f2f2f7",border:"none",borderRadius:8,padding:"8px 14px",
+            fontSize:11,fontWeight:500,color:C.muted}}>
+            Laden
+          </button>
+          {saveMsg&&<span style={{fontSize:10,color:"#34c759",fontWeight:600}}>{saveMsg}</span>}
+        </div>
+      </div>
+
+      {/* Live Kurse */}
+      {prices.btc>0&&<div style={{display:"flex",gap:16,marginBottom:14,fontSize:10,color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexWrap:"wrap"}}>
+        <span>BTC {fmt(prices.btc)} CHF</span>
+        <span>Gold {fmt(prices.gold)} CHF/oz</span>
+        {STOCKS.map(s=>prices[s]>0&&<span key={s}>{s.toUpperCase()} {fmt2(prices[s])} CHF</span>)}
+      </div>}
+
+      {/* Net Worth */}
+      <Section style={{marginBottom:18}}>
+        <div style={{fontSize:10,color:C.sub,fontWeight:500,letterSpacing:0.8,textTransform:"uppercase",marginBottom:8}}>Nettovermögen</div>
+        <div style={{fontSize:36,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white,letterSpacing:"-0.04em",lineHeight:1}}>
+          CHF {fmt(Math.round(netWorth))}</div>
+        <div style={{display:"flex",gap:0,marginTop:20,borderTop:"1px solid "+C.border,paddingTop:18}}>
+          {[{l:"Cash",v:cashTotal},{l:"Bitcoin",v:Math.round(pv.btc)},{l:"Aktien",v:Math.round(pv.stocks)},{l:"Gold",v:Math.round(pv.gold)},{l:"Schulden",v:-Math.round(schuldenCHF)}].map((m,i)=>
+            <div key={i} style={{flex:1,textAlign:"center"}}>
+              <div style={{fontSize:10,color:C.sub,fontWeight:500,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5}}>{m.l}</div>
+              <div style={{fontSize:16,fontWeight:600,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>
+                {m.v<0?"–":""}{fmt(Math.abs(m.v))}</div></div>)}
+        </div>
+      </Section>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:2,marginBottom:22,background:"#efefef",borderRadius:10,padding:3,width:"fit-content"}}>
+        {tabBtn("dashboard","Dashboard")}
+        {tabBtn("holdings","Holdings")}
+        {tabBtn("entries","Monatsdaten")}
+        {tabBtn("geldfluss","G. Geldfluss")}
+        {tabBtn("patrik","P. Geldfluss")}
+      </div>
+
+      {/* ═══ DASHBOARD ═══ */}
+      {tab==="dashboard"&&<div>
+        <Section>
+          <SectionTitle>Fortschritt</SectionTitle>
+          <Progress label="Notgroschen" value={cashTotal} target={27000}/>
+          {(()=>{const total=latest.schulden_total||latest.schulden||0;const paid=latest.schulden_bezahlt||0;return total>0?<Progress label="Schulden abbezahlt (CHF)" value={paid} target={total}/>:null;})()}
+          <ProgressMilestones label="Vermögen" value={Math.round(netWorth)} target={5300000}
+            milestones={[100000,250000,500000,1000000,2000000,3000000,4000000,5000000,5300000]}/>
+          <Progress label="Sparquote" value={Math.round(gfSparrateNet)} target={gf.income}/>
+        </Section>
+
+        <DualLineChart title="Notgroschen" istData={istNG} sollData={SOLL_NOTGROSCHEN}/>
+        <DualLineChart title="Schulden (CHF)" istData={istSch} sollData={SOLL_SCHULDEN} unit="CHF " fillStart={latest.schulden_total||latest.schulden||0}/>
+        <PortfolioChart istData={istPf} sollData={SOLL_PORTFOLIO}/>
+        <BusinessChart istData={istBiz} sollData={SOLL_BUSINESS}/>
+      </div>}
+
+      {/* ═══ HOLDINGS ═══ */}
+      {tab==="holdings"&&<div>
+        <Section>
+          <SectionTitle>Bestände eingeben</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+            <NumInput label="Bitcoin (BTC)" value={holdings.btc} step={0.0001} onChange={v=>updateHolding("btc",v)} prefix="₿"/>
+            <NumInput label="Gold (Unzen)" value={holdings.gold_oz} step={0.01} onChange={v=>updateHolding("gold_oz",v)} prefix="oz"/>
+            <div/>
+            {STOCKS.map(s=><NumInput key={s} label={STOCK_LABELS[s]+" ("+s.toUpperCase()+")"} value={holdings[s]} step={0.01} onChange={v=>updateHolding(s,v)} prefix="Stk"/>)}
+          </div>
+        </Section>
+
+        {pv.total>0&&<Section>
+          <SectionTitle>Allocation (IST vs. SOLL)</SectionTitle>
+          <div style={{display:"flex",gap:8}}>
+            {[{l:"BTC",v:pv.btc,t:50},{l:"Aktien",v:pv.stocks,t:25},{l:"Gold",v:pv.gold,t:25}].map((a,i)=>{
+              const act=Math.round(a.v/pv.total*100); const diff=act-a.t;
+              return <div key={i} style={{flex:1,textAlign:"center",padding:"16px 0",background:"#f8f8f8",borderRadius:10}}>
+                <div style={{fontSize:10,color:C.sub,fontWeight:500,textTransform:"uppercase",letterSpacing:0.5}}>{a.l}</div>
+                <div style={{fontSize:24,fontWeight:600,color:C.white,fontFamily:"'JetBrains Mono',monospace",marginTop:6}}>{act}%</div>
+                <div style={{fontSize:10,color:C.sub,marginTop:4}}>Soll {a.t}% <span style={{color:Math.abs(diff)>5?C.negative:C.sub}}>({diff>0?"+":""}{diff})</span></div>
+              </div>;})}
+          </div>
+        </Section>}
+
+        <Section>
+          <SectionTitle>Bewertung (Live-Kurse)</SectionTitle>
+          {[{l:"Bitcoin",v:pv.btc,amount:holdings.btc,unit:"BTC",price:prices.btc},
+            {l:"Gold",v:pv.gold,amount:holdings.gold_oz,unit:"oz",price:prices.gold},
+            ...STOCKS.map(s=>({l:STOCK_LABELS[s],v:(holdings[s]||0)*(prices[s]||0),amount:holdings[s],unit:"Stk",price:prices[s]}))
+          ].map((row,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",
+            borderBottom:i<5?"1px solid #f2f2f7":"none"}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:500,color:C.white}}>{row.l}</div>
+              <div style={{fontSize:11,color:C.sub}}>{row.amount} {row.unit} × CHF {fmt2(row.price||0)}</div>
+            </div>
+            <div style={{fontSize:15,fontWeight:600,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>
+              CHF {fmt(Math.round(row.v))}</div>
+          </div>)}
+          <div style={{display:"flex",justifyContent:"space-between",paddingTop:14,marginTop:6,borderTop:"1px solid "+C.border}}>
+            <span style={{fontSize:14,fontWeight:600,color:C.white}}>Total Portfolio</span>
+            <span style={{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>
+              CHF {fmt(Math.round(pv.total))}</span>
+          </div>
+        </Section>
+      </div>}
+
+      {/* ═══ MONATSDATEN ═══ */}
+      {tab==="entries"&&<Section>
+        <SectionTitle right={<button onClick={addEntry} style={{background:"#f2f2f7",border:"none",borderRadius:8,
+          color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neuer Monat</button>}>Monatliche Einträge</SectionTitle>
+        <div style={{fontSize:12,color:C.sub,marginBottom:16,marginTop:-10}}>Ende jedes Monats aktuelle Werte eintragen.</div>
+        {[...entries].map((_,i)=>entries.length-1-i).map(idx=>{const entry=entries[idx]; return <div key={idx} style={{background:"#f8f8f8",borderRadius:10,padding:"18px 22px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <span style={{fontSize:14,fontWeight:600,color:C.white}}>{mLabel(entry.month)}</span>
+            <span onClick={()=>removeEntry(idx)} style={{cursor:"pointer",fontSize:11,color:C.sub}}>Löschen</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
+            <NumInput label="Sparkonto CHF" value={entry.sparkonto} onChange={v=>updateEntry(idx,"sparkonto",v)}/>
+            <NumInput label="Bargeld CHF" value={entry.bargeld} onChange={v=>updateEntry(idx,"bargeld",v)}/>
+            <NumInput label="Schulden (gesamt)" value={entry.schulden_total||entry.schulden||0} onChange={v=>updateEntry(idx,"schulden_total",v)}/>
+            <NumInput label="Abbezahlt" value={entry.schulden_bezahlt||0} onChange={v=>updateEntry(idx,"schulden_bezahlt",v)}/>
+            <NumInput label="BTC Wert CHF" value={entry.btc} onChange={v=>updateEntry(idx,"btc",v)}/>
+            <NumInput label="Aktien Wert CHF" value={entry.aktien} onChange={v=>updateEntry(idx,"aktien",v)}/>
+            <NumInput label="Gold Wert CHF" value={entry.gold} onChange={v=>updateEntry(idx,"gold",v)}/>
+            <NumInput label="Business Revenue" value={entry.biz_rev} onChange={v=>updateEntry(idx,"biz_rev",v)}/>
+            <NumInput label="Business Kosten" value={entry.biz_cost} onChange={v=>updateEntry(idx,"biz_cost",v)}/>
+            <NumInput label="Erlebniskasse CHF" value={entry.erlebniskasse||0} onChange={v=>updateEntry(idx,"erlebniskasse",v)}/>
+            <NumInput label="Anschaffungskasse CHF" value={entry.anschaffungskasse||0} onChange={v=>updateEntry(idx,"anschaffungskasse",v)}/>
+            <NumInput label="P. Sparvermögen CHF" value={entry.patrik_sparen||0} onChange={v=>updateEntry(idx,"patrik_sparen",v)}/>
+          </div></div>;})}
+      </Section>}
+
+      {/* ═══ GELDFLUSS ═══ */}
+      {tab==="geldfluss"&&<div>
+        <GeldflussFlow gf={gf} bizProfit={bizProfit} onAddCustom={addGFCustom} onRemoveCustom={removeGFCustom} labels={gfLabels} onUpdateItems={(key,a,b)=>{
+          if(key==="__custom")updateGFCustom(a,b);else updateGF(key,a);
+        }}/>
+
+        <div style={{marginTop:20}}>
+          <Section><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:14,fontWeight:600,color:C.white}}>Job-Einkommen Netto</span>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,color:C.sub}}>CHF</span>
+              <input type="number" value={gf.income} onChange={e=>updateGF("income",+e.target.value)}
+                style={{width:120,fontSize:16,fontWeight:600,textAlign:"right",padding:"7px 12px"}}/></div></div></Section>
+
+          <EditableList label={gfLabels.fixkosten||"Fixkosten"} items={gf.fixkosten} onChange={v=>updateGF("fixkosten",v)} onRename={v=>renameGFBuiltin("fixkosten",v)}/>
+          <EditableList label={gfLabels.essen||"Essen + Versorgung"} items={gf.essen} onChange={v=>updateGF("essen",v)} onRename={v=>renameGFBuiltin("essen",v)}/>
+          <EditableList label={gfLabels.gemeinsam||"Gemeinsam"} items={gf.gemeinsam} onChange={v=>updateGF("gemeinsam",v)} onRename={v=>renameGFBuiltin("gemeinsam",v)}/>
+          <EditableList label={gfLabels.periodisch||"Periodische Kosten"} items={gf.periodisch} onChange={v=>updateGF("periodisch",v)} onRename={v=>renameGFBuiltin("periodisch",v)}/>
+          {gfCustom.map(c=><EditableList key={c.id} label={c.label} items={c.items||[]}
+            onChange={v=>updateGFCustom(c.id,v)} onDelete={()=>removeGFCustom(c.id)} onRename={v=>renameGFCustom(c.id,v)}/>)}
+          <button onClick={addGFCustom} style={{width:"100%",padding:"14px",borderRadius:10,border:"1px dashed #d1d1d6",
+            background:"transparent",color:C.sub,fontSize:12,fontWeight:500,marginBottom:14}}>+ Neues Konto erstellen</button>
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+            <Section style={{marginBottom:0}}><NumInput label="Gesundheit" value={gf.gesundheit} onChange={v=>updateGF("gesundheit",v)} prefix="CHF"/></Section>
+            <Section style={{marginBottom:0}}><NumInput label="Spassgeld (pro Person)" value={gf.privat} onChange={v=>updateGF("privat",v)} prefix="CHF"/></Section>
+            <Section style={{marginBottom:0}}><NumInput label="Schuldenrate" value={gf.schulden} onChange={v=>updateGF("schulden",v)} prefix="CHF"/></Section>
+          </div>
+
+          <Section>
+            <SectionTitle>Zusammenfassung</SectionTitle>
+            {[{l:"Job-Einkommen",v:gf.income,pos:true},...(bizProfit>0?[{l:"Business-Einkommen",v:bizProfit,pos:true}]:[]),
+              {l:"Fixkosten",v:-gfSum(gf.fixkosten)},{l:"Essen + Versorgung",v:-gfSum(gf.essen)},
+              {l:"Gemeinsam",v:-gfSum(gf.gemeinsam)},{l:"Periodisch",v:-gfSum(gf.periodisch)},
+              ...gfCustom.map(c=>({l:c.label,v:-gfSum(c.items)})),
+              {l:"Gesundheit",v:-gf.gesundheit},
+              {l:"Spassgeld (2x)",v:-gf.privat*2},{l:"Schuldenrate",v:-gf.schulden},
+            ].map((row,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border}}>
+              <span style={{fontSize:13,color:C.sub}}>{row.l}</span>
+              <span style={{fontSize:13,fontFamily:"'JetBrains Mono',monospace",fontWeight:500,color:row.pos?C.positive:C.text}}>
+                {row.v<0?"–":""}CHF {fmt(Math.abs(Math.round(row.v)))}</span></div>)}
+            <div style={{display:"flex",justifyContent:"space-between",paddingTop:14,marginTop:6}}>
+              <span style={{fontSize:14,fontWeight:600,color:C.white}}>Freie Sparrate</span>
+              <span style={{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:gfSparrateNet>0?C.white:C.negative}}>
+                CHF {fmt(Math.round(gfSparrateNet))}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",paddingTop:6}}>
+              <span style={{fontSize:12,color:C.sub}}>Sparquote</span>
+              <span style={{fontSize:13,fontFamily:"'JetBrains Mono',monospace",color:C.sub}}>
+                {Math.round(gfSparrateNet/gf.income*100)}%</span></div>
+          </Section>
+
+          <div style={{borderTop:"2px solid "+C.border,marginTop:10,paddingTop:24}}>
+            {(()=>{
+              const akTotal=(()=>{for(let i=entries.length-1;i>=0;i--){if(entries[i].anschaffungskasse)return entries[i].anschaffungskasse;}return 0;})();
+              const akVerteilt=anschaffungen.reduce((s,a)=>s+a.gespart,0);
+              const akVerfuegbar=Math.max(0,akTotal-akVerteilt);
+              return <Section>
+              <SectionTitle right={<button onClick={addAnschaffung} style={{background:"#f2f2f7",border:"none",borderRadius:8,
+                color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Sparziel</button>}>Sparziele</SectionTitle>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+                <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
+                  <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(akTotal)}</div>
+                </div>
+                <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verteilt</div>
+                  <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(akVerteilt)}</div>
+                </div>
+                <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verfügbar</div>
+                  <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:akVerfuegbar>0?C.positive:C.dim}}>CHF {fmt(akVerfuegbar)}</div>
+                </div>
+              </div>
+              {anschaffungen.map(a=><div key={a.id} style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <input type="text" value={a.name} onChange={e=>updateAnschaffung(a.id,"name",e.target.value)}
+                    style={{background:"transparent",border:"none",color:C.white,fontSize:13,fontWeight:600,padding:0,width:"auto",fontFamily:"Inter"}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",color:C.sub}}>CHF {fmt(a.gespart)} / {fmt(a.ziel)}</span>
+                    <span onClick={()=>removeAnschaffung(a.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
+                  </div></div>
+                <Progress label="" value={a.gespart} target={a.ziel}/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+                  <NumInput label="Gespart (CHF)" value={a.gespart} onChange={v=>updateAnschaffung(a.id,"gespart",v)}/>
+                  <NumInput label="Ziel (CHF)" value={a.ziel} onChange={v=>updateAnschaffung(a.id,"ziel",v)}/></div></div>)}
+              {anschaffungen.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
+            </Section>;})()}
+
+            {(()=>{
+              const ekTotal=(()=>{for(let i=entries.length-1;i>=0;i--){if(entries[i].erlebniskasse)return entries[i].erlebniskasse;}return 0;})();
+              const ekVerteilt=erlebnisse.reduce((s,e)=>s+e.gespart,0);
+              const ekVerfuegbar=Math.max(0,ekTotal-ekVerteilt);
+              return <Section>
+              <SectionTitle right={<button onClick={addErlebnis} style={{background:"#f2f2f7",border:"none",borderRadius:8,
+                color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Ziel</button>}>Erlebniskasse</SectionTitle>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+                <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
+                  <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(ekTotal)}</div>
+                </div>
+                <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verteilt</div>
+                  <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(ekVerteilt)}</div>
+                </div>
+                <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verfügbar</div>
+                  <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:ekVerfuegbar>0?C.positive:C.dim}}>CHF {fmt(ekVerfuegbar)}</div>
+                </div>
+              </div>
+              {erlebnisse.map(er=><div key={er.id} style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <input type="text" value={er.name} onChange={e=>updateErlebnis(er.id,"name",e.target.value)}
+                    style={{background:"transparent",border:"none",color:C.white,fontSize:13,fontWeight:600,padding:0,width:"auto",fontFamily:"Inter"}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",color:C.sub}}>CHF {fmt(er.gespart)} / {fmt(er.ziel)}</span>
+                    <span onClick={()=>removeErlebnis(er.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
+                  </div></div>
+                <Progress label="" value={er.gespart} target={er.ziel}/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+                  <NumInput label="Gespart (CHF)" value={er.gespart} onChange={v=>updateErlebnis(er.id,"gespart",v)}/>
+                  <NumInput label="Ziel (CHF)" value={er.ziel} onChange={v=>updateErlebnis(er.id,"ziel",v)}/></div></div>)}
+              {erlebnisse.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.sub,fontSize:13}}>Noch keine Erlebnisziele.</div>}
+            </Section>;})()}
+          </div>
+        </div>
+      </div>}
+
+      {/* ═══ PATRIK ═══ */}
+      {tab==="patrik"&&<div>
+        <PatrikFlow patrik={patrik} spassgeld={gf.privat} onRemoveGroup={removePatrikGroup} onUpdateGroupItems={updatePatrikGroup}/>
+
+        <div style={{marginTop:20}}>
+          {patrik.groups.map(g=><EditableList key={g.id} label={g.label} items={g.items||[]}
+            onChange={v=>updatePatrikGroup(g.id,v)} onDelete={()=>removePatrikGroup(g.id)} onRename={v=>renamePatrikGroup(g.id,v)}/>)}
+
+          <Section>
+            <SectionTitle>Zusammenfassung</SectionTitle>
+            {(()=>{
+              const groupRows=patrik.groups.map(g=>({l:g.label,v:-gfSum(g.items)}));
+              const totalOut=patrik.groups.reduce((s,g)=>s+gfSum(g.items),0);
+              const spass=gf.privat||patrik.spassgeld||400;
+              const rest=spass-totalOut;
+              const rows=[{l:"Spassgeld",v:spass,pos:true},...groupRows];
+              return React.createElement(React.Fragment, null,
+                rows.map((row,i)=>React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid "+C.border}},
+                  React.createElement("span",{style:{fontSize:13,color:C.sub}},row.l),
+                  React.createElement("span",{style:{fontSize:13,fontFamily:"'JetBrains Mono',monospace",fontWeight:500,
+                    color:row.pos?C.positive:C.text}},
+                    (row.v<0?"–":"")+"CHF "+fmt(Math.abs(Math.round(row.v)))))),
+                React.createElement("div",{style:{display:"flex",justifyContent:"space-between",paddingTop:14,marginTop:6}},
+                  React.createElement("span",{style:{fontSize:14,fontWeight:600,color:C.white}},"Verfügbar"),
+                  React.createElement("span",{style:{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:rest>0?C.white:C.negative}},
+                    "CHF "+fmt(Math.round(rest)))));
+            })()}
+          </Section>
+
+          {(()=>{
+            const psTotal=(()=>{for(let i=entries.length-1;i>=0;i--){if(entries[i].patrik_sparen)return entries[i].patrik_sparen;}return 0;})();
+            const psVerteilt=(patrik.ziele||[]).reduce((s,z)=>s+z.gespart,0);
+            const psVerfuegbar=Math.max(0,psTotal-psVerteilt);
+            return <Section>
+            <SectionTitle right={<button onClick={addPatrikZiel} style={{background:"#f2f2f7",border:"none",borderRadius:8,
+              color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Sparziel</button>}>Sparziele</SectionTitle>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+              <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
+                <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(psTotal)}</div>
+              </div>
+              <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verteilt</div>
+                <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(psVerteilt)}</div>
+              </div>
+              <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+                <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Verfügbar</div>
+                <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:psVerfuegbar>0?C.positive:C.dim}}>CHF {fmt(psVerfuegbar)}</div>
+              </div>
+            </div>
+            {(patrik.ziele||[]).map(z=><div key={z.id} style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <input type="text" value={z.name} onChange={e=>updatePatrikZiel(z.id,"name",e.target.value)}
+                  style={{background:"transparent",border:"none",color:C.white,fontSize:13,fontWeight:600,padding:0,width:"auto",fontFamily:"Inter"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:12,fontFamily:"'JetBrains Mono',monospace",color:C.sub}}>CHF {fmt(z.gespart)} / {fmt(z.ziel)}</span>
+                  <span onClick={()=>removePatrikZiel(z.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
+                </div></div>
+              <Progress label="" value={z.gespart} target={z.ziel}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+                <NumInput label="Gespart (CHF)" value={z.gespart} onChange={v=>updatePatrikZiel(z.id,"gespart",v)}/>
+                <NumInput label="Ziel (CHF)" value={z.ziel} onChange={v=>updatePatrikZiel(z.id,"ziel",v)}/></div></div>)}
+            {(patrik.ziele||[]).length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
+          </Section>;})()}
+
+          <div style={{display:"flex",justifyContent:"center",marginTop:8,marginBottom:14}}>
+            <button onClick={addPatrikGroup} style={{padding:"10px 24px",fontSize:12,fontWeight:500,color:C.sub,background:"none",border:"1.5px dashed #d1d1d6",borderRadius:10,letterSpacing:0.3}}>+ Neues Konto erstellen</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* ═══ ERLEBNISKASSE ═══ */}
+      {tab==="erlebnisse"&&(()=>{
+        const ekTotal=(()=>{for(let i=entries.length-1;i>=0;i--){if(entries[i].erlebniskasse)return entries[i].erlebniskasse;}return 0;})();
+        const ekVerteilt=erlebnisse.reduce((s,e)=>s+e.gespart,0);
+        const ekVerfuegbar=Math.max(0,ekTotal-ekVerteilt);
+        const ekZielTotal=erlebnisse.reduce((s,e)=>s+e.ziel,0);
+        return <Section>
+        <SectionTitle right={<button onClick={addErlebnis} style={{background:"#f2f2f7",border:"none",borderRadius:8,
+          color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Ziel</button>}>Erlebniskasse</SectionTitle>
+        <div style={{fontSize:12,color:C.sub,marginTop:-10,marginBottom:16}}>Virtuelle Töpfe innerhalb eines UBS-Kontos</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:18}}>
+          <div style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.sub,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>Kontostand</div>
+            <div style={{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(ekTotal)}</div>
+          </div>
+          <div style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.sub,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>Verteilt</div>
+            <div style={{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:ekVerteilt>ekTotal?C.negative:C.white}}>CHF {fmt(ekVerteilt)}</div>
+          </div>
+          <div style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:C.sub,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>Verfügbar</div>
+            <div style={{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:ekVerfuegbar>0?C.positive:C.dim}}>CHF {fmt(ekVerfuegbar)}</div>
+          </div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{height:6,background:"#f2f2f7",borderRadius:3,overflow:"hidden"}}>
+            {ekTotal>0&&<div style={{height:"100%",width:Math.min(100,ekVerteilt/ekTotal*100)+"%",background:ekVerteilt>ekTotal?"#ff3b30":"#1c1c1e",borderRadius:3,transition:"width 0.3s"}}/>}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4,fontSize:10,color:C.sub}}>
+            <span>{ekTotal>0?Math.round(ekVerteilt/ekTotal*100):0}% verteilt</span>
+            <span>Ziel-Summe: CHF {fmt(ekZielTotal)}</span>
+          </div>
+        </div>
+        {erlebnisse.map(er=><div key={er.id} style={{background:"#f8f8f8",borderRadius:10,padding:"18px 22px",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <input type="text" value={er.name} onChange={e=>updateErlebnis(er.id,"name",e.target.value)}
+              style={{background:"transparent",border:"none",color:C.white,fontSize:14,fontWeight:600,padding:0,width:"auto",fontFamily:"Inter"}}/>
+            <span onClick={()=>removeErlebnis(er.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span></div>
+          <Progress label="" value={er.gespart} target={er.ziel}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+            <NumInput label="Gespart (CHF)" value={er.gespart} onChange={v=>updateErlebnis(er.id,"gespart",v)}/>
+            <NumInput label="Ziel (CHF)" value={er.ziel} onChange={v=>updateErlebnis(er.id,"ziel",v)}/></div></div>)}
+        {erlebnisse.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
+      </Section>;})()}
+
+    </div></div>;
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props){super(props);this.state={error:null};}
+  componentDidCatch(e,info){this.setState({error:e});console.error("React Error:",e,info);}
+  render(){if(this.state.error)return React.createElement("pre",{style:{padding:20,color:"red"}},
+    "Error: "+this.state.error.message+"\n"+this.state.error.stack);return this.props.children;}
+}
+ErrorBoundary.getDerivedStateFromError=function(e){return{error:e};};
+console.log("Script loaded OK, rendering App...");
+try {
+  const root=ReactDOM.createRoot(document.getElementById("root"));
+  root.render(<ErrorBoundary><App/></ErrorBoundary>);
+  console.log("Render called OK");
+} catch(e) {
+  console.error("Render error:", e);
+  document.getElementById("root").innerHTML = "<pre style='padding:20px;color:red'>"+e.message+"</pre>";
+}
+</script>
+</body>
+</html>

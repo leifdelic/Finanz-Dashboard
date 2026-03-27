@@ -1,0 +1,196 @@
+{
+  "entries": [
+    {
+      "month": "2026-03",
+      "sparkonto": 2455,
+      "bargeld": 520,
+      "schulden": 0,
+      "btc": 0,
+      "aktien": 0,
+      "gold": 0,
+      "biz_rev": 0,
+      "biz_cost": 0,
+      "erlebniskasse": 400,
+      "anschaffungskasse": 1000,
+      "patrik_sparen": 207,
+      "schulden_total": 4615,
+      "schulden_bezahlt": 1153
+    }
+  ],
+  "holdings": {
+    "btc": 0,
+    "gold_oz": 0,
+    "aapl": 0,
+    "amzn": 0,
+    "googl": 0,
+    "pltr": 0
+  },
+  "erlebnisse": [],
+  "patrik": {
+    "spassgeld": 400,
+    "groups": [
+      {
+        "id": 2,
+        "label": "Business-Kosten",
+        "items": []
+      },
+      {
+        "id": 1773392569541,
+        "label": "Monatliche Ausgaben",
+        "items": [
+          [
+            "Position",
+            0
+          ],
+          [
+            "Coiffeur",
+            64
+          ],
+          [
+            "Gemini Enterprise",
+            47
+          ],
+          [
+            "Google Drive",
+            10
+          ],
+          [
+            "Google Workspace",
+            8
+          ]
+        ]
+      }
+    ],
+    "ziele": [
+      {
+        "id": 1773392532241,
+        "name": "Führerschein",
+        "ziel": 3000,
+        "gespart": 0
+      }
+    ]
+  },
+  "geldfluss": {
+    "income": 9396,
+    "fixkosten": [
+      [
+        "Miete (inkl. NK-Akonto)",
+        2200
+      ],
+      [
+        "KK Patrik",
+        380.85
+      ],
+      [
+        "KK Julia",
+        231
+      ],
+      [
+        "Fitness Patrik",
+        112
+      ],
+      [
+        "Fitness Julia",
+        123
+      ],
+      [
+        "Transport 2x Bus",
+        122
+      ],
+      [
+        "Handy 2x",
+        80
+      ],
+      [
+        "Internet",
+        40
+      ],
+      [
+        "UBS Konto",
+        15
+      ],
+      [
+        "Grosseltern",
+        200
+      ]
+    ],
+    "essen": [
+      [
+        "Lebensmittel & Kochen",
+        1000
+      ],
+      [
+        "Auswärts / Takeaway",
+        150
+      ],
+      [
+        "Hygiene",
+        80
+      ],
+      [
+        "Haushalt",
+        78
+      ],
+      [
+        "Supplements",
+        65
+      ],
+      [
+        "Stacking",
+        50
+      ],
+      [
+        "Hormonring Julia",
+        20
+      ]
+    ],
+    "gemeinsam": [
+      [
+        "Haushalt spontan",
+        200
+      ],
+      [
+        "Ausflüge / Dates",
+        200
+      ],
+      [
+        "Geschenke",
+        100
+      ],
+      [
+        "Puffer",
+        163
+      ]
+    ],
+    "periodisch": [
+      [
+        "NK/Strom-Puffer",
+        100
+      ],
+      [
+        "Helvetia Versicherung",
+        95.87
+      ],
+      [
+        "Serafe",
+        27.92
+      ],
+      [
+        "Apotheke",
+        17.5
+      ]
+    ],
+    "gesundheit": 150,
+    "privat": 400,
+    "schulden": 1140,
+    "custom": []
+  },
+  "anschaffungen": [
+    {
+      "id": 1773418584922,
+      "name": "Bett",
+      "ziel": 500,
+      "gespart": 300
+    }
+  ]
+}
