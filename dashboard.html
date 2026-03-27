@@ -112,7 +112,7 @@ function getAuthHeader() {
 
 /* ── Cloud storage (Vercel Blob) ── */
 const API_URL = "/api/data";
-let _cloudSaveTimer = null;
+let _pendingCloudSave = null;
 
 async function cloudLoad() {
   try {
@@ -124,14 +124,37 @@ async function cloudLoad() {
 }
 
 function cloudSave(data) {
-  clearTimeout(_cloudSaveTimer);
-  _cloudSaveTimer = setTimeout(() => {
-    fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...getAuthHeader() },
-      body: JSON.stringify(data)
-    }).catch(() => {});
-  }, 1000);
+  const payload = JSON.stringify(data);
+  _pendingCloudSave = fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    body: payload
+  }).then(()=>{ _pendingCloudSave=null; }).catch(()=>{ _pendingCloudSave=null; });
+}
+
+// Flush pending save before page unload
+window.addEventListener("beforeunload", () => {
+  if (_pendingCloudSave) {
+    const data = load("finanz_data", null);
+    if (data && _sessionPw) {
+      navigator.sendBeacon(API_URL + "?token=" + encodeURIComponent(_sessionPw), new Blob([JSON.stringify(data)], { type: "application/json" }));
+    }
+  }
+});
+
+function mergeData(cloud, local) {
+  if (!cloud || !cloud.entries) return local;
+  if (!local) return cloud;
+  const merged = { ...cloud };
+  // Preserve local-only keys (e.g. julia) that cloud doesn't have
+  for (const key of Object.keys(local)) {
+    if (!(key in merged) && local[key] != null) merged[key] = local[key];
+  }
+  // For entries: use whichever has more entries (more recent data)
+  if (local.entries && local.entries.length > (cloud.entries||[]).length) {
+    merged.entries = local.entries;
+  }
+  return merged;
 }
 
 /* ── File-based persistent storage (works in ALL browsers) ── */
@@ -889,16 +912,21 @@ function App() {
   const [cloudStatus,setCloudStatus]=useState("loading");
   const {prices,loading,lastUpdate,refresh}=usePrices();
 
-  // Load from cloud on startup
+  // Load from cloud on startup, merge with local
   useEffect(()=>{
     cloudLoad().then(cloudData=>{
       if(cloudData && cloudData.entries){
-        setData(cloudData);
-        save("finanz_data",cloudData);
+        const localData = load("finanz_data", null);
+        const merged = mergeData(cloudData, localData);
+        setData(merged);
+        save("finanz_data", merged);
+        // Push merged data back to cloud if local had extra keys
+        if (localData && Object.keys(localData).length > Object.keys(cloudData).length) {
+          cloudSave(merged);
+        }
         setCloudStatus("synced");
       } else {
         setCloudStatus("local");
-        // Push local data to cloud if exists
         const local = load("finanz_data",null);
         if(local) cloudSave(local);
       }

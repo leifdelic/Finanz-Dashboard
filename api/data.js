@@ -7,8 +7,8 @@ module.exports = async function handler(req, res) {
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Check password (accepts either user's password)
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  // Check password (accepts either user's password, via header or query param)
+  const token = (req.headers.authorization || "").replace("Bearer ", "") || req.query.token || "";
   const validPasswords = [
     process.env.DASHBOARD_PASSWORD,
     process.env.DASHBOARD_PASSWORD_2
