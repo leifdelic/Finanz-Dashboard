@@ -91,6 +91,29 @@ async function saveEncrypted(k, v, pw) {
   localStorage.removeItem(k); // remove old unencrypted
 }
 
+/* ── Cloud storage (Vercel Blob) ── */
+const API_URL = "/api/data";
+let _cloudSaveTimer = null;
+
+async function cloudLoad() {
+  try {
+    const res = await fetch(API_URL);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+function cloudSave(data) {
+  clearTimeout(_cloudSaveTimer);
+  _cloudSaveTimer = setTimeout(() => {
+    fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    }).catch(() => {});
+  }, 1000);
+}
+
 /* ── File-based persistent storage (works in ALL browsers) ── */
 let _lastFileSave = 0;
 
@@ -836,7 +859,24 @@ function App() {
   const [data,setData]=useState(()=>load("finanz_data",defaultData()));
   const [unsavedChanges,setUnsavedChanges]=useState(false);
   const [saveMsg,setSaveMsg]=useState("");
+  const [cloudStatus,setCloudStatus]=useState("loading");
   const {prices,loading,lastUpdate,refresh}=usePrices();
+
+  // Load from cloud on startup
+  useEffect(()=>{
+    cloudLoad().then(cloudData=>{
+      if(cloudData && cloudData.entries){
+        setData(cloudData);
+        save("finanz_data",cloudData);
+        setCloudStatus("synced");
+      } else {
+        setCloudStatus("local");
+        // Push local data to cloud if exists
+        const local = load("finanz_data",null);
+        if(local) cloudSave(local);
+      }
+    }).catch(()=>setCloudStatus("offline"));
+  },[]);
 
   // Warn before leaving with unsaved changes
   useEffect(()=>{
@@ -866,6 +906,8 @@ function App() {
   const persist=useCallback(fn=>{setData(prev=>{
     const next=typeof fn==="function"?fn(prev):fn;
     save("finanz_data",next);
+    cloudSave(next);
+    setCloudStatus("synced");
     setUnsavedChanges(true);
     return next;
   });},[]);
@@ -968,7 +1010,11 @@ const entries=data.entries||[];
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:28}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:700,color:C.white,letterSpacing:"-0.03em"}}>Finanz-Dashboard</h1>
-          <p style={{fontSize:12,color:C.sub,marginTop:3}}>Patrik & Julia</p>
+          <p style={{fontSize:12,color:C.sub,marginTop:3}}>Patrik & Julia
+            <span style={{marginLeft:8,fontSize:10,color:cloudStatus==="synced"?"#34c759":cloudStatus==="loading"?"#ff9500":"#8e8e93"}}>
+              {cloudStatus==="synced"?"● Cloud":cloudStatus==="loading"?"◌ Laden...":"○ Lokal"}
+            </span>
+          </p>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <button onClick={refresh} style={{
