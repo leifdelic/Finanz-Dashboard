@@ -39,7 +39,10 @@
     /* ── Mobile Responsive ── */
     @media (max-width: 767px) {
       input[type=number], input[type=text] { font-size: 16px !important; padding: 10px 12px; }
-      .dash-grid-3 { grid-template-columns: 1fr !important; }
+      .dash-grid-3 { grid-template-columns: 1fr 1fr 1fr !important; gap: 6px !important; }
+      .dash-grid-3 > div[style*="background"] { padding: 8px 6px !important; border-radius: 8px !important; }
+      .dash-grid-3 > div[style*="background"] div[style*="fontSize:15"] { font-size: 13px !important; }
+      .dash-grid-3.dash-stack { grid-template-columns: 1fr !important; gap: 14px !important; }
       .dash-grid-4 { grid-template-columns: 1fr 1fr !important; }
       .dash-grid-2 { grid-template-columns: 1fr !important; }
       .dash-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100% !important; scrollbar-width: none; }
@@ -1189,7 +1192,7 @@ const entries=data.entries||[];
       {tab==="holdings"&&<div>
         <Section>
           <SectionTitle>Bestände eingeben</SectionTitle>
-          <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+          <div className="dash-grid-3 dash-stack" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
             <NumInput label="Bitcoin (BTC)" value={holdings.btc} step={0.0001} onChange={v=>updateHolding("btc",v)} prefix="₿"/>
             <NumInput label="Gold (Unzen)" value={holdings.gold_oz} step={0.01} onChange={v=>updateHolding("gold_oz",v)} prefix="oz"/>
             <div/>
