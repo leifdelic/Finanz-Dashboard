@@ -3,9 +3,20 @@ const { put, list, del } = require("@vercel/blob");
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Check password (accepts either user's password)
+  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  const validPasswords = [
+    process.env.DASHBOARD_PASSWORD,
+    process.env.DASHBOARD_PASSWORD_2
+  ].filter(Boolean);
+
+  if (!token || !validPasswords.includes(token)) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
 
   const blobName = "finanz-data.json";
 
@@ -20,10 +31,8 @@ module.exports = async function handler(req, res) {
 
     if (req.method === "POST") {
       const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-      // Delete old blob first
       const { blobs } = await list({ prefix: blobName });
       for (const blob of blobs) await del(blob.url);
-      // Store new data
       await put(blobName, body, { access: "public", contentType: "application/json", addRandomSuffix: false });
       return res.status(200).json({ ok: true });
     }

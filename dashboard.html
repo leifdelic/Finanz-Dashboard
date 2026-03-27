@@ -91,13 +91,33 @@ async function saveEncrypted(k, v, pw) {
   localStorage.removeItem(k); // remove old unencrypted
 }
 
+/* ── Auth ── */
+let _sessionPw = sessionStorage.getItem("dash_pw") || null;
+
+async function verifyPassword(pw) {
+  try {
+    const res = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pw })
+    });
+    if (res.ok) { _sessionPw = pw; sessionStorage.setItem("dash_pw", pw); return true; }
+    return false;
+  } catch { return false; }
+}
+
+function getAuthHeader() {
+  return { "Authorization": "Bearer " + (_sessionPw || "") };
+}
+
 /* ── Cloud storage (Vercel Blob) ── */
 const API_URL = "/api/data";
 let _cloudSaveTimer = null;
 
 async function cloudLoad() {
   try {
-    const res = await fetch(API_URL);
+    const res = await fetch(API_URL, { headers: getAuthHeader() });
+    if (res.status === 401) return "unauthorized";
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -108,7 +128,7 @@ function cloudSave(data) {
   _cloudSaveTimer = setTimeout(() => {
     fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
       body: JSON.stringify(data)
     }).catch(() => {});
   }, 1000);
@@ -1405,6 +1425,69 @@ const entries=data.entries||[];
     </div></div>;
 }
 
+/* ══════════════ LOGIN SCREEN ══════════════ */
+function LoginScreen({ onLogin }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!pw.trim()) return;
+    setChecking(true);
+    setError("");
+    const ok = await verifyPassword(pw.trim());
+    setChecking(false);
+    if (ok) { onLogin(); }
+    else { setError("Falsches Passwort"); setPw(""); }
+  };
+
+  return <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{background:C.card,borderRadius:16,padding:"48px 40px",width:360,boxShadow:"0 2px 12px rgba(0,0,0,0.06)",border:"1px solid "+C.border}}>
+      <h1 style={{fontSize:20,fontWeight:700,color:C.white,letterSpacing:"-0.03em",marginBottom:4}}>Finanz-Dashboard</h1>
+      <p style={{fontSize:12,color:C.sub,marginBottom:28}}>Bitte melde dich an.</p>
+      <form onSubmit={handleSubmit}>
+        <input ref={inputRef} type="password" placeholder="Passwort" value={pw} onChange={e=>setPw(e.target.value)}
+          style={{marginBottom:14,fontSize:14,padding:"12px 14px",borderRadius:10,border:"1px solid "+C.border,
+            background:C.bg,width:"100%",fontFamily:"'Inter',sans-serif",boxSizing:"border-box"}}/>
+        {error && <div style={{color:"#ff3b30",fontSize:12,marginBottom:10,fontWeight:500}}>{error}</div>}
+        <button type="submit" disabled={checking} style={{width:"100%",padding:"12px",borderRadius:10,border:"none",
+          background:"#1c1c1e",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",opacity:checking?0.6:1}}>
+          {checking ? "Prüfe..." : "Anmelden"}
+        </button>
+      </form>
+    </div>
+  </div>;
+}
+
+/* ══════════════ AUTH WRAPPER ══════════════ */
+function AuthWrapper() {
+  const [authed, setAuthed] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    // Check if session password is still valid
+    if (_sessionPw) {
+      verifyPassword(_sessionPw).then(ok => {
+        setAuthed(ok);
+        setChecking(false);
+      });
+    } else {
+      setChecking(false);
+    }
+  }, []);
+
+  if (checking) return <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <span style={{color:C.sub,fontSize:13}}>Laden...</span></div>;
+
+  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
+
+  return <App />;
+}
+
 class ErrorBoundary extends React.Component {
   constructor(props){super(props);this.state={error:null};}
   componentDidCatch(e,info){this.setState({error:e});console.error("React Error:",e,info);}
@@ -1415,7 +1498,7 @@ ErrorBoundary.getDerivedStateFromError=function(e){return{error:e};};
 console.log("Script loaded OK, rendering App...");
 try {
   const root=ReactDOM.createRoot(document.getElementById("root"));
-  root.render(<ErrorBoundary><App/></ErrorBoundary>);
+  root.render(<ErrorBoundary><AuthWrapper/></ErrorBoundary>);
   console.log("Render called OK");
 } catch(e) {
   console.error("Render error:", e);
