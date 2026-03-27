@@ -31,6 +31,28 @@
     @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
     @keyframes dashFlow { from { stroke-dashoffset: 14 } to { stroke-dashoffset: 0 } }
     @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+
+    /* ── Mobile Responsive ── */
+    @media (max-width: 767px) {
+      input[type=number], input[type=text] { font-size: 16px !important; padding: 10px 12px; }
+      .dash-grid-3 { grid-template-columns: 1fr !important; }
+      .dash-grid-4 { grid-template-columns: 1fr 1fr !important; }
+      .dash-grid-2 { grid-template-columns: 1fr !important; }
+      .dash-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100% !important; }
+      .dash-tabs button { padding: 7px 14px !important; font-size: 11px !important; white-space: nowrap; }
+      .dash-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+      .dash-header-btns { width: 100%; justify-content: flex-start !important; }
+      .dash-nw-cols { flex-wrap: wrap !important; }
+      .dash-nw-cols > div { flex: 0 0 33% !important; min-width: 0 !important; margin-bottom: 8px; }
+      .dash-section { padding: 16px 14px !important; }
+      .dash-login { width: calc(100% - 32px) !important; max-width: 360px; padding: 32px 24px !important; }
+      .dash-main { padding: 16px 10px !important; }
+      .dash-flow svg { min-height: 220px !important; }
+    }
+    @media (max-width: 480px) {
+      .dash-nw-cols > div { flex: 0 0 50% !important; }
+      .dash-grid-2 { grid-template-columns: 1fr !important; }
+    }
   </style>
 </head>
 <body>
@@ -300,7 +322,7 @@ function clipSoll(istData, sollData, ahead) {
 
 /* ── Components ── */
 function Section({ children, style }) {
-  return <div style={{ background:C.card, borderRadius:14, padding:"24px 28px", marginBottom:14,
+  return <div className="dash-section" style={{ background:C.card, borderRadius:14, padding:"24px 28px", marginBottom:14,
     boxShadow:"0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)", ...style }}>{children}</div>;
 }
 function SectionTitle({ children, right }) {
@@ -706,7 +728,7 @@ function GeldflussFlow({ gf, bizProfit, onAddCustom, onUpdateItems, onRemoveCust
     </div>
 
     <Section style={{padding:"16px 12px",overflow:"auto"}}>
-      <svg key={phase} viewBox={"0 0 "+W+" "+graph.svgH} width="100%" style={{display:"block",minHeight:340}}>
+      <svg className="dash-flow" key={phase} viewBox={"0 0 "+W+" "+graph.svgH} width="100%" style={{display:"block",minHeight:340}}>
         {graph.edges.map((edge,i)=>{
           const d=vPath(edge.from,edge.to); if(!d)return null;
           const pid="e"+i; const thick=edge.amt?Math.max(1.2,Math.min(4,edge.amt/1400)):1;
@@ -828,7 +850,7 @@ function PersonFlow({ person, spassgeld, onRemoveGroup, onUpdateGroupItems, pers
 
   return <div>
     <Section style={{padding:"16px 12px",overflow:"auto"}}>
-      <svg viewBox={"0 0 "+W+" "+graph.svgH} width="100%" style={{display:"block",minHeight:280}}>
+      <svg className="dash-flow" viewBox={"0 0 "+W+" "+graph.svgH} width="100%" style={{display:"block",minHeight:280}}>
         <style>{`
           @keyframes draw{from{stroke-dashoffset:1000}to{stroke-dashoffset:0}}
           @keyframes fadeIn{from{opacity:0}to{opacity:1}}
@@ -1075,11 +1097,11 @@ const entries=data.entries||[];
     boxShadow:tab===id?"0 1px 3px rgba(0,0,0,0.06)":"none"}}>
     {label}</button>;
 
-  return <div style={{minHeight:"100vh",background:C.bg,padding:"32px 24px"}}>
+  return <div className="dash-main" style={{minHeight:"100vh",background:C.bg,padding:"32px 24px"}}>
     <div style={{maxWidth:1100,margin:"0 auto"}}>
 
       {/* Header */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:28}}>
+      <div className="dash-header" style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:28}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:700,color:C.white,letterSpacing:"-0.03em"}}>Finanz-Dashboard</h1>
           <p style={{fontSize:12,color:C.sub,marginTop:3}}>Patrik & Julia
@@ -1088,7 +1110,7 @@ const entries=data.entries||[];
             </span>
           </p>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <div className="dash-header-btns" style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
           <button onClick={refresh} style={{
             background:"#f2f2f7",border:"none",borderRadius:8,padding:"8px 14px",
             fontSize:11,fontWeight:500,color:C.muted,display:"flex",alignItems:"center",gap:6}}>
@@ -1123,7 +1145,7 @@ const entries=data.entries||[];
         <div style={{fontSize:10,color:C.sub,fontWeight:500,letterSpacing:0.8,textTransform:"uppercase",marginBottom:8}}>Nettovermögen</div>
         <div style={{fontSize:36,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white,letterSpacing:"-0.04em",lineHeight:1}}>
           CHF {fmt(Math.round(netWorth))}</div>
-        <div style={{display:"flex",gap:0,marginTop:20,borderTop:"1px solid "+C.border,paddingTop:18}}>
+        <div className="dash-nw-cols" style={{display:"flex",gap:0,marginTop:20,borderTop:"1px solid "+C.border,paddingTop:18}}>
           {[{l:"Cash",v:cashTotal},{l:"Bitcoin",v:Math.round(pv.btc)},{l:"Aktien",v:Math.round(pv.stocks)},{l:"Gold",v:Math.round(pv.gold)},{l:"Schulden",v:-Math.round(schuldenCHF)}].map((m,i)=>
             <div key={i} style={{flex:1,textAlign:"center"}}>
               <div style={{fontSize:10,color:C.sub,fontWeight:500,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5}}>{m.l}</div>
@@ -1133,7 +1155,7 @@ const entries=data.entries||[];
       </Section>
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:2,marginBottom:22,background:"#efefef",borderRadius:10,padding:3,width:"fit-content"}}>
+      <div className="dash-tabs" style={{display:"flex",gap:2,marginBottom:22,background:"#efefef",borderRadius:10,padding:3,width:"fit-content"}}>
         {tabBtn("dashboard","Dashboard")}
         {tabBtn("holdings","Holdings")}
         {tabBtn("entries","Monatsdaten")}
@@ -1163,7 +1185,7 @@ const entries=data.entries||[];
       {tab==="holdings"&&<div>
         <Section>
           <SectionTitle>Bestände eingeben</SectionTitle>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+          <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
             <NumInput label="Bitcoin (BTC)" value={holdings.btc} step={0.0001} onChange={v=>updateHolding("btc",v)} prefix="₿"/>
             <NumInput label="Gold (Unzen)" value={holdings.gold_oz} step={0.01} onChange={v=>updateHolding("gold_oz",v)} prefix="oz"/>
             <div/>
@@ -1216,7 +1238,7 @@ const entries=data.entries||[];
             <span style={{fontSize:14,fontWeight:600,color:C.white}}>{mLabel(entry.month)}</span>
             <span onClick={()=>removeEntry(idx)} style={{cursor:"pointer",fontSize:11,color:C.sub}}>Löschen</span>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
+          <div className="dash-grid-4" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
             <NumInput label="Sparkonto CHF" value={entry.sparkonto} onChange={v=>updateEntry(idx,"sparkonto",v)}/>
             <NumInput label="Bargeld CHF" value={entry.bargeld} onChange={v=>updateEntry(idx,"bargeld",v)}/>
             <NumInput label="Schulden (gesamt)" value={entry.schulden_total||entry.schulden||0} onChange={v=>updateEntry(idx,"schulden_total",v)}/>
@@ -1256,7 +1278,7 @@ const entries=data.entries||[];
           <button onClick={addGFCustom} style={{width:"100%",padding:"14px",borderRadius:10,border:"1px dashed #d1d1d6",
             background:"transparent",color:C.sub,fontSize:12,fontWeight:500,marginBottom:14}}>+ Neues Konto erstellen</button>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+          <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
             <Section style={{marginBottom:0}}><NumInput label="Gesundheit" value={gf.gesundheit} onChange={v=>updateGF("gesundheit",v)} prefix="CHF"/></Section>
             <Section style={{marginBottom:0}}><NumInput label="Spassgeld (pro Person)" value={gf.privat} onChange={v=>updateGF("privat",v)} prefix="CHF"/></Section>
             <Section style={{marginBottom:0}}><NumInput label="Schuldenrate" value={gf.schulden} onChange={v=>updateGF("schulden",v)} prefix="CHF"/></Section>
@@ -1292,7 +1314,7 @@ const entries=data.entries||[];
               return <Section>
               <SectionTitle right={<button onClick={addAnschaffung} style={{background:"#f2f2f7",border:"none",borderRadius:8,
                 color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Sparziel</button>}>Sparziele</SectionTitle>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+              <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
                 <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
                   <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
                   <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(akTotal)}</div>
@@ -1315,7 +1337,7 @@ const entries=data.entries||[];
                     <span onClick={()=>removeAnschaffung(a.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
                   </div></div>
                 <Progress label="" value={a.gespart} target={a.ziel}/>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+                <div className="dash-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
                   <NumInput label="Gespart (CHF)" value={a.gespart} onChange={v=>updateAnschaffung(a.id,"gespart",v)}/>
                   <NumInput label="Ziel (CHF)" value={a.ziel} onChange={v=>updateAnschaffung(a.id,"ziel",v)}/></div></div>)}
               {anschaffungen.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
@@ -1328,7 +1350,7 @@ const entries=data.entries||[];
               return <Section>
               <SectionTitle right={<button onClick={addErlebnis} style={{background:"#f2f2f7",border:"none",borderRadius:8,
                 color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Ziel</button>}>Erlebniskasse</SectionTitle>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+              <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
                 <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
                   <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
                   <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(ekTotal)}</div>
@@ -1351,7 +1373,7 @@ const entries=data.entries||[];
                     <span onClick={()=>removeErlebnis(er.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
                   </div></div>
                 <Progress label="" value={er.gespart} target={er.ziel}/>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+                <div className="dash-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
                   <NumInput label="Gespart (CHF)" value={er.gespart} onChange={v=>updateErlebnis(er.id,"gespart",v)}/>
                   <NumInput label="Ziel (CHF)" value={er.ziel} onChange={v=>updateErlebnis(er.id,"ziel",v)}/></div></div>)}
               {erlebnisse.length===0&&<div style={{textAlign:"center",padding:"20px 0",color:C.sub,fontSize:13}}>Noch keine Erlebnisziele.</div>}
@@ -1396,7 +1418,7 @@ const entries=data.entries||[];
             return <Section>
             <SectionTitle right={<button onClick={addPatrikZiel} style={{background:"#f2f2f7",border:"none",borderRadius:8,
               color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Sparziel</button>}>Sparziele</SectionTitle>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+            <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
               <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
                 <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
                 <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(psTotal)}</div>
@@ -1419,7 +1441,7 @@ const entries=data.entries||[];
                   <span onClick={()=>removePatrikZiel(z.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
                 </div></div>
               <Progress label="" value={z.gespart} target={z.ziel}/>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+              <div className="dash-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
                 <NumInput label="Gespart (CHF)" value={z.gespart} onChange={v=>updatePatrikZiel(z.id,"gespart",v)}/>
                 <NumInput label="Ziel (CHF)" value={z.ziel} onChange={v=>updatePatrikZiel(z.id,"ziel",v)}/></div></div>)}
             {(patrik.ziele||[]).length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
@@ -1467,7 +1489,7 @@ const entries=data.entries||[];
             return <Section>
             <SectionTitle right={<button onClick={addJuliaZiel} style={{background:"#f2f2f7",border:"none",borderRadius:8,
               color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Sparziel</button>}>Sparziele</SectionTitle>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
+            <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:14}}>
               <div style={{background:"#f8f8f8",borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
                 <div style={{fontSize:9,color:C.sub,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Kontostand</div>
                 <div style={{fontSize:15,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(jsTotal)}</div>
@@ -1490,7 +1512,7 @@ const entries=data.entries||[];
                   <span onClick={()=>removeJuliaZiel(z.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span>
                 </div></div>
               <Progress label="" value={z.gespart} target={z.ziel}/>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+              <div className="dash-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
                 <NumInput label="Gespart (CHF)" value={z.gespart} onChange={v=>updateJuliaZiel(z.id,"gespart",v)}/>
                 <NumInput label="Ziel (CHF)" value={z.ziel} onChange={v=>updateJuliaZiel(z.id,"ziel",v)}/></div></div>)}
             {(julia.ziele||[]).length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
@@ -1512,7 +1534,7 @@ const entries=data.entries||[];
         <SectionTitle right={<button onClick={addErlebnis} style={{background:"#f2f2f7",border:"none",borderRadius:8,
           color:C.muted,fontSize:12,fontWeight:500,padding:"8px 18px"}}>+ Neues Ziel</button>}>Erlebniskasse</SectionTitle>
         <div style={{fontSize:12,color:C.sub,marginTop:-10,marginBottom:16}}>Virtuelle Töpfe innerhalb eines UBS-Kontos</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:18}}>
+        <div className="dash-grid-3" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginBottom:18}}>
           <div style={{background:"#f8f8f8",borderRadius:10,padding:"14px 18px",textAlign:"center"}}>
             <div style={{fontSize:10,color:C.sub,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>Kontostand</div>
             <div style={{fontSize:18,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:C.white}}>CHF {fmt(ekTotal)}</div>
@@ -1541,7 +1563,7 @@ const entries=data.entries||[];
               style={{background:"transparent",border:"none",color:C.white,fontSize:14,fontWeight:600,padding:0,width:"auto",fontFamily:"Inter"}}/>
             <span onClick={()=>removeErlebnis(er.id)} style={{cursor:"pointer",fontSize:12,color:C.dim}}>×</span></div>
           <Progress label="" value={er.gespart} target={er.ziel}/>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
+          <div className="dash-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:8}}>
             <NumInput label="Gespart (CHF)" value={er.gespart} onChange={v=>updateErlebnis(er.id,"gespart",v)}/>
             <NumInput label="Ziel (CHF)" value={er.ziel} onChange={v=>updateErlebnis(er.id,"ziel",v)}/></div></div>)}
         {erlebnisse.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:C.sub,fontSize:13}}>Noch keine Sparziele.</div>}
@@ -1571,7 +1593,7 @@ function LoginScreen({ onLogin }) {
   };
 
   return <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
-    <div style={{background:C.card,borderRadius:16,padding:"48px 40px",width:360,boxShadow:"0 2px 12px rgba(0,0,0,0.06)",border:"1px solid "+C.border}}>
+    <div className="dash-login" style={{background:C.card,borderRadius:16,padding:"48px 40px",width:360,boxShadow:"0 2px 12px rgba(0,0,0,0.06)",border:"1px solid "+C.border}}>
       <h1 style={{fontSize:20,fontWeight:700,color:C.white,letterSpacing:"-0.03em",marginBottom:4}}>Finanz-Dashboard</h1>
       <p style={{fontSize:12,color:C.sub,marginBottom:28}}>Bitte melde dich an.</p>
       <form onSubmit={handleSubmit}>
